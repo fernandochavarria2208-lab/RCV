@@ -78,7 +78,6 @@
   }
 
   function applyWhatsAppCTA() {
-    // Si tus páginas calcularon esto, úsalo
     const cta = document.getElementById('ctaWhatsApp');
     if (cta) {
       const href = window.__waHrefCTA || window.__waHref;
@@ -87,15 +86,31 @@
   }
 
   async function injectTopbar() {
-    const slot = document.getElementById('topbarSlot');
-    if (!slot) return;
-    if (document.querySelector('header.topbar')) return; // evita doble
+    // 1) Determina dónde inyectar/reemplazar:
+    //    - Preferir #topbarSlot si existe
+    //    - Si no, usar un header.topbar que ya esté en la página (y reemplazarlo)
+    //    - Si no hay ninguno, crear un slot al inicio del body
+    let target = document.getElementById('topbarSlot') || document.querySelector('header.topbar');
+    if (!target) {
+      target = document.createElement('div');
+      target.id = 'topbarSlotAuto';
+      document.body.insertBefore(target, document.body.firstChild);
+    }
 
+    // 2) Carga el parcial desde la primera ruta válida
     let html = '';
-    try { html = await fetchFirstOk(candidatePaths()); }
-    catch (e) { console.error('[topbar] No se pudo cargar:', e); return; }
+    try {
+      html = await fetchFirstOk(candidatePaths());
+    } catch (e) {
+      console.error('[topbar] No se pudo cargar:', e);
+      return;
+    }
 
-    slot.innerHTML = html;
+    // 3) Reemplaza el target por el parcial (incluye header + drawer)
+    //    outerHTML reemplaza el nodo completo, ideal si el target era <header>
+    target.outerHTML = html;
+
+    // 4) Después de que el HTML está en el DOM, enlaza comportamientos
     markActiveLink();
     wireDrawer();
     applyWhatsAppCTA();
