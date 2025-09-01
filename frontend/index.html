@@ -116,46 +116,8 @@
   </style>
 </head>
 <body>
-  <!-- Topbar -->
-  <header class="topbar">
-    <div class="container topbar-inner">
-      <div class="brand">
-        <img src="img/logo.png" alt="RCV" />
-        <div class="title">Servicios Mecánicos RCV</div>
-      </div>
-      <nav aria-label="Navegación principal">
-        <ul>
-          <li><a href="servicios.html">Servicios</a></li>
-          <li><a href="#consulta">Consulta de estado</a></li>
-          <li><a href="#contacto">Contáctanos</a></li>
-          <li><span class="nav-sep" aria-hidden="true"></span></li>
-          <li><a class="nav-cta" id="ctaWhatsApp" href="#" target="_blank" rel="noopener">Agendar</a></li>
-        </ul>
-      </nav>
-      <button class="hamb" aria-label="Menú de empleados" title="Menú de empleados" id="btnHamb">☰</button>
-    </div>
-  </header>
-
-  <!-- Drawer (empleados) -->
-  <div class="drawer-backdrop" id="drawerBackdrop"></div>
-  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawerTitle" role="dialog">
-    <div class="drawer-header">
-      <div id="drawerTitle" class="drawer-title">Área interna</div>
-      <button class="btn btn-ghost" id="btnCloseDrawer" aria-label="Cerrar">✕</button>
-    </div>
-    <div class="drawer-body">
-      <div class="drawer-note">
-        <strong>Espacio único para empleados</strong><br/>
-        Acceso a panel, kardex, órdenes, facturación y más.
-      </div>
-      <p class="muted" style="color:var(--muted);margin:0">
-        Si eres parte del equipo, inicia sesión para continuar.
-      </p>
-    </div>
-    <div class="drawer-actions">
-      <a class="btn btn-primary" href="login.html">Iniciar sesión</a>
-    </div>
-  </aside>
+  <!-- Topbar centralizado -->
+  <div id="topbarSlot"></div>
 
   <main class="container container--fluid">
     <!-- HERO -->
@@ -311,6 +273,9 @@
     </div>
   </footer>
 
+  <!-- Inyección del topbar centralizado -->
+  <script src="js/include-topbar.js"></script>
+
   <script>
     // Año en footer
     document.getElementById('y').textContent = new Date().getFullYear();
@@ -340,9 +305,11 @@
       const waHref = waPlain ? ('https://wa.me/' + waPlain + '?text=' + waMsg) : '#';
       if ($('#btnWA'))  $('#btnWA').href = waHref;
       if ($('#btnWA2')) $('#btnWA2').href = waHref;
-      if ($('#ctaWhatsApp')) $('#ctaWhatsApp').href = waHref;
       if ($('#waSpan')) $('#waSpan').textContent = cfg.whatsappNumber || '+504 9561-5205';
       if ($('#telSpan')) $('#telSpan').textContent = cfg.telefono || cfg.whatsappNumber || '+504 9561-5205';
+
+      // EX: la CTA del topbar se inyecta después; guardamos el href para aplicarlo al cargar.
+      window.__waHref = waHref;
 
       // Redes y catálogo
       if ($('#fbLink')) $('#fbLink').href = cfg.facebookUrl;
@@ -380,31 +347,11 @@
       });
     })();
 
-    // === Drawer de empleados (móvil y escritorio) ===
-    (function(){
-      const drawer   = document.getElementById('drawer');
-      const backdrop = document.getElementById('drawerBackdrop');
-      const openBtn  = document.getElementById('btnHamb');
-      const closeBtn = document.getElementById('btnCloseDrawer');
-
-      function openDrawer(){
-        drawer.classList.add('open');
-        backdrop.classList.add('open');
-        drawer.setAttribute('aria-hidden','false');
-        document.body.style.overflow='hidden';
-      }
-      function closeDrawer(){
-        drawer.classList.remove('open');
-        backdrop.classList.remove('open');
-        drawer.setAttribute('aria-hidden','true');
-        document.body.style.overflow='';
-      }
-
-      openBtn?.addEventListener('click', openDrawer);
-      closeBtn?.addEventListener('click', closeDrawer);
-      backdrop?.addEventListener('click', closeDrawer);
-      window.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDrawer(); });
-    })();
+    // Al terminar de cargar la página (ya con el topbar inyectado), aplicamos el href de WhatsApp
+    window.addEventListener('load', function(){
+      var cta = document.getElementById('ctaWhatsApp');
+      if (cta && window.__waHref) cta.href = window.__waHref;
+    });
   </script>
 </body>
 </html>

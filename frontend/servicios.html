@@ -21,7 +21,7 @@
     }
     *{box-sizing:border-box}
     html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Arial,sans-serif}
+    body{margin:0;background:#f4f6f8;color:#111827;font-family:Inter,system-ui,Arial,sans-serif}
     a{color:inherit;text-decoration:none}
     .container{max-width:1100px;margin:0 auto;padding:0 16px}
 
@@ -86,25 +86,8 @@
   </style>
 </head>
 <body>
-  <!-- Topbar -->
-  <header class="topbar">
-    <div class="container topbar-inner">
-      <div class="brand">
-        <img src="img/logo.png" alt="RCV" />
-        <div class="title">Servicios Mecánicos RCV</div>
-      </div>
-      <nav>
-        <ul>
-          <li><a href="index.html">Inicio</a></li>
-          <li><a class="active" href="servicios.html">Servicios</a></li>
-          <li><a href="index.html#consulta">Consulta de estado</a></li>
-          <li><a href="index.html#contacto">Contáctanos</a></li>
-          <li><a class="nav-cta" id="ctaWhatsApp" href="#" target="_blank" rel="noopener">Agendar</a></li>
-        </ul>
-      </nav>
-      <button class="hamb" aria-label="Menú" title="Menú">☰</button>
-    </div>
-  </header>
+  <!-- Topbar centralizado -->
+  <div id="topbarSlot"></div>
 
   <main class="container container--fluid">
     <!-- HERO -->
@@ -302,7 +285,7 @@
     <div class="container" style="display:grid;grid-template-columns:1.2fr .8fr;gap:16px;padding:16px">
       <div>
         <strong>Servicios Mecánicos RCV</strong>
-        <div class="muted">Dirección: Barrio Medina 8 calle, 6-7 avenida, SPS. <span id="addrSpan">—</span></div>
+        <div class="muted">Dirección: <span id="addrSpan">—</span></div>
         <div class="muted">Tel: <span id="telSpan">—</span> · WhatsApp: <span id="waSpan">—</span></div>
       </div>
       <div class="credits" style="color:var(--muted);font-size:13px;align-self:end;justify-self:end">
@@ -310,6 +293,9 @@
       </div>
     </div>
   </footer>
+
+  <!-- Inyección del topbar centralizado -->
+  <script src="js/include-topbar.js"></script>
 
   <script>
     // Footer año
@@ -323,7 +309,7 @@
         whatsappNumber: '+504 9561-5205',
         whatsappCatalogUrl: 'https://wa.me/c/50495615205',
         heroImage: 'img/taller-frente.jpg',
-        direccion: 'Tu dirección aquí',
+        direccion: 'Barrio Medina 8 calle, 6-7 avenida, SPS.',
         telefono: '+504 9561-5205',
         // Galería por defecto (si no hay nada guardado)
         gallery: [
@@ -362,7 +348,6 @@
 
       // CTA generales
       if ($('#btnWA') && waBase) $('#btnWA').href = waBase + '?text=' + encodeURIComponent('Hola, quiero cotizar un servicio');
-      if ($('#ctaWhatsApp') && waBase) $('#ctaWhatsApp').href = waBase + '?text=' + encodeURIComponent('Hola, quiero agendar un servicio');
 
       // Contacto
       if ($('#waSpan')) $('#waSpan').textContent = cfg.whatsappNumber || '+504 9561-5205';
@@ -405,6 +390,11 @@
           if (btn) btn.href = waBase + '?text=' + encodeURIComponent(waMsgBase + title);
         });
       })();
+
+      // Guarda el enlace de la CTA para aplicarlo tras inyectar el topbar
+      if (waBase) {
+        window.__waHrefCTA = waBase + '?text=' + encodeURIComponent('Hola, quiero agendar un servicio');
+      }
     })();
 
     // === Filtros y búsqueda (con accesibilidad) ===
@@ -439,6 +429,12 @@
       });
       q?.addEventListener('input', (e)=>{ term = e.target.value; apply(); });
     })();
+
+    // Aplica la CTA del topbar cuando la página termina de cargar
+    window.addEventListener('load', function(){
+      var cta = document.getElementById('ctaWhatsApp');
+      if (cta && window.__waHrefCTA) cta.href = window.__waHrefCTA;
+    });
   </script>
 </body>
 </html>
