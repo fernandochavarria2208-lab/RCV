@@ -19,7 +19,9 @@
         if (res.ok) {
           console.info('[topbar] cargado desde:', u);
           return await res.text();
-        } catch (e) {}
+        } else {
+          console.warn('[topbar] intento fallido:', u, res.status);
+        }
       } catch (e) {
         console.warn('[topbar] error al intentar:', u, e);
       }
@@ -82,10 +84,10 @@
   }
 
   function removeDuplicates(keepHeader) {
-    // elimina otros headers.topbar que no sean el nuevo
+    // Elimina otros headers.topbar que no sean el nuevo
     const headers = Array.from(document.querySelectorAll('header.topbar'));
     headers.forEach(h => { if (h !== keepHeader) h.remove(); });
-    // deja solo un drawer/backdrop
+    // Deja solo un drawer/backdrop
     const drawers = Array.from(document.querySelectorAll('#drawer'));
     const backs   = Array.from(document.querySelectorAll('#drawerBackdrop'));
     drawers.slice(1).forEach(n => n.remove());
@@ -93,11 +95,11 @@
   }
 
   async function injectTopbar() {
-    // Preferimos reemplazar un header.topbar existente
+    // 1) Preferimos reemplazar un header.topbar existente
     let target = document.querySelector('header.topbar');
-    // Si no hay, usamos el slot (si existe)
+    // 2) Si no hay, probamos slot explícito
     if (!target) target = document.getElementById('topbarSlot');
-    // Si tampoco hay, creamos un slot al principio del body
+    // 3) Si tampoco hay, creamos slot al principio
     let created = false;
     if (!target) {
       target = document.createElement('div');
@@ -106,25 +108,22 @@
       created = true;
     }
 
+    // 4) Cargar parcial
     let html = '';
     try { html = await fetchFirstOk(candidatePaths()); }
     catch (e) { console.error('[topbar] No se pudo cargar:', e); return; }
 
-    // Inyecta/reemplaza
+    // 5) Inyectar/reemplazar
     if (created || target.id === 'topbarSlot' || target.id === 'topbarSlotAuto') {
       target.outerHTML = html;
-      // el nuevo header es el primero del DOM
       target = document.querySelector('header.topbar');
     } else {
-      // era un header existente: lo reemplazamos completo
       target.outerHTML = html;
       target = document.querySelector('header.topbar');
     }
 
-    // Limpia duplicados por si había un header previo
+    // 6) Limpiar duplicados y conectar lógica
     if (target) removeDuplicates(target);
-
-    // Conecta comportamientos y CTA
     markActiveLink();
     wireDrawer();
     applyWhatsAppCTA();
