@@ -17,7 +17,7 @@
     body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Arial,sans-serif}
     a{color:inherit;text-decoration:none}
     .container{max-width:1100px;margin:0 auto;padding:0 16px}
-    .topbar{position:sticky;top:0;z-index:50;background:#fff;box-shadow:var(--shadow)}
+    .topbar{position:sticky;top:0;z-index:60;background:#fff;box-shadow:var(--shadow)}
     .topbar-inner{display:flex;align-items:center;justify-content:space-between;padding:10px 16px}
     .brand{display:flex;align-items:center;gap:12px}
     .brand img{width:56px;height:auto;border-radius:10px;object-fit:contain;background:#f8f8f8}
@@ -26,6 +26,36 @@
     nav a{display:block;padding:8px 12px;border-radius:10px}
     nav a:hover{background:rgba(0,0,0,.05)}
     .nav-cta{background:var(--accent);color:#fff}
+    /* Login en topbar + separador */
+    .nav-login{border:1px solid #e5e7eb}
+    .nav-login:hover{background:#f3f4f6}
+    .nav-sep{width:1px;height:24px;background:#e5e7eb;margin:0 4px;border-radius:1px;display:inline-block;vertical-align:middle}
+
+    /* Botón hamburguesa */
+    .hamb{display:inline-flex;align-items:center;justify-content:center;border:1px solid #e5e7eb;border-radius:10px;padding:8px;background:#fff;cursor:pointer}
+    .hamb:active{transform:scale(.98)}
+
+    /* Drawer */
+    .drawer-backdrop{
+      position:fixed;inset:0;background:rgba(0,0,0,.35);
+      opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:70;
+    }
+    .drawer-backdrop.open{opacity:1;pointer-events:auto}
+    .drawer{
+      position:fixed;top:0;right:0;height:100%;width:min(92vw,360px);
+      background:#fff;box-shadow: -8px 0 24px rgba(15,23,42,.18);
+      transform:translateX(100%);transition:transform .25s ease;z-index:80;
+      display:flex;flex-direction:column;
+    }
+    .drawer.open{transform:none}
+    .drawer-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #f1f5f9}
+    .drawer-title{font-weight:800}
+    .drawer-body{padding:16px;display:flex;flex-direction:column;gap:12px}
+    .drawer-note{color:var(--muted);background:#f8fafc;padding:12px;border-radius:12px;border:1px dashed #e5e7eb}
+    .drawer-actions{margin-top:auto;padding:16px;border-top:1px solid #f1f5f9}
+    .btn{border:none;border-radius:12px;padding:10px 14px;cursor:pointer}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-ghost{background:#fff;border:1px solid #e5e7eb}
 
     /* Hero */
     .hero{background:#fff;margin-top:10px}
@@ -33,9 +63,6 @@
     .hero h1{margin:0 0 10px 0;font-size:clamp(22px,4.5vw,42px)}
     .hero p{margin:0;color:var(--muted)}
     .hero-actions{display:flex;gap:10px;margin-top:16px}
-    .btn{border:none;border-radius:12px;padding:10px 14px;cursor:pointer}
-    .btn-primary{background:var(--accent);color:#fff}
-    .btn-ghost{background:#fff;border:1px solid #e5e7eb}
     .hero-art{background:#f1f5f9;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;overflow:hidden}
     .hero-art img{width:100%;height:auto;display:block}
 
@@ -81,7 +108,7 @@
       .testi{grid-template-columns:1fr 1fr}
       .grid{grid-template-columns:1fr 1fr}
       nav ul{display:none}
-      .hamb{display:inline-flex;align-items:center;justify-content:center;border:1px solid #e5e7eb;border-radius:10px;padding:8px}
+      /* .hamb ya es visible en todos los tamaños */
     }
     @media (max-width:640px){
       .grid,.testi,.redes{grid-template-columns:1fr}
@@ -96,17 +123,40 @@
         <img src="img/logo.png" alt="RCV" />
         <div class="title">Servicios Mecánicos RCV</div>
       </div>
-      <nav>
+      <nav aria-label="Navegación principal">
         <ul>
           <li><a href="servicios.html">Servicios</a></li>
           <li><a href="#consulta">Consulta de estado</a></li>
           <li><a href="#contacto">Contáctanos</a></li>
+          <li><span class="nav-sep" aria-hidden="true"></span></li>
+          <li><a class="nav-login" href="login.html">Iniciar sesión</a></li>
           <li><a class="nav-cta" id="ctaWhatsApp" href="#" target="_blank" rel="noopener">Agendar</a></li>
         </ul>
       </nav>
-      <button class="hamb" aria-label="Menú" title="Menú">☰</button>
+      <button class="hamb" aria-label="Menú de empleados" title="Menú de empleados" id="btnHamb">☰</button>
     </div>
   </header>
+
+  <!-- Drawer (empleados) -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawerTitle" role="dialog">
+    <div class="drawer-header">
+      <div id="drawerTitle" class="drawer-title">Área interna</div>
+      <button class="btn btn-ghost" id="btnCloseDrawer" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-note">
+        <strong>Espacio único para empleados</strong><br/>
+        Acceso a panel, kardex, órdenes, facturación y más.
+      </div>
+      <p class="muted" style="color:var(--muted);margin:0">
+        Si eres parte del equipo, inicia sesión para continuar.
+      </p>
+    </div>
+    <div class="drawer-actions">
+      <a class="btn btn-primary" href="login.html">Iniciar sesión</a>
+    </div>
+  </aside>
 
   <main class="container container--fluid">
     <!-- HERO -->
@@ -202,7 +252,7 @@
     </section>
 
     <section class="block">
-      <div class="head"><h2 style="margin:0">Redes y galería</h2></div>
+      <div class="head"><h2 style="margin:0)">Redes y galería</h2></div>
       <div class="redes">
         <div class="embed">
           <div>
@@ -286,7 +336,7 @@
       if ($('#heroImg') && cfg.heroImage) $('#heroImg').src = cfg.heroImage;
 
       // WhatsApp links
-      const waPlain = (cfg.whatsappNumber || '').replace(/[^\\d]/g,'');
+      const waPlain = (cfg.whatsappNumber || '').replace(/[^\d]/g,'');
       const waMsg = encodeURIComponent('Hola, quiero cotizar un servicio');
       const waHref = waPlain ? ('https://wa.me/' + waPlain + '?text=' + waMsg) : '#';
       if ($('#btnWA'))  $('#btnWA').href = waHref;
@@ -326,9 +376,35 @@
       });
       limpiar?.addEventListener('click', ()=>{
         setEstado(45, 'En diagnóstico');
-        document.getElementById('qPlaca').value='';
-        document.getElementById('qOrden').value='';
+        const qP=document.getElementById('qPlaca'); if(qP) qP.value='';
+        const qO=document.getElementById('qOrden'); if(qO) qO.value='';
       });
+    })();
+
+    // === Drawer de empleados (móvil y escritorio) ===
+    (function(){
+      const drawer   = document.getElementById('drawer');
+      const backdrop = document.getElementById('drawerBackdrop');
+      const openBtn  = document.getElementById('btnHamb');
+      const closeBtn = document.getElementById('btnCloseDrawer');
+
+      function openDrawer(){
+        drawer.classList.add('open');
+        backdrop.classList.add('open');
+        drawer.setAttribute('aria-hidden','false');
+        document.body.style.overflow='hidden';
+      }
+      function closeDrawer(){
+        drawer.classList.remove('open');
+        backdrop.classList.remove('open');
+        drawer.setAttribute('aria-hidden','true');
+        document.body.style.overflow='';
+      }
+
+      openBtn?.addEventListener('click', openDrawer);
+      closeBtn?.addEventListener('click', closeDrawer);
+      backdrop?.addEventListener('click', closeDrawer);
+      window.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDrawer(); });
     })();
   </script>
 </body>
