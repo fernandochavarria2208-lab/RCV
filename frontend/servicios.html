@@ -36,6 +36,7 @@
     nav a:hover{background:rgba(0,0,0,.05)}
     .nav-cta{background:var(--accent);color:#fff}
     .active{background:rgba(0,0,0,.07)}
+    .hamb{display:inline-flex;align-items:center;justify-content:center;border:1px solid #e5e7eb;border-radius:10px;padding:8px}
 
     /* Hero */
     .hero{background:#fff;margin-top:10px}
@@ -86,7 +87,7 @@
   </style>
 </head>
 <body>
-  <!-- Topbar centralizado -->
+  <!-- TOPBAR INYECTADO -->
   <div id="topbarSlot"></div>
 
   <main class="container container--fluid">
@@ -151,7 +152,7 @@
           <div>Lubricante recomendado, filtro y control de niveles.</div>
           <div class="actions">
             <a class="btn btn-ghost" href="index.html#contacto">Más info</a>
-            <a class="btn btn-primary" id="w3" target="_blank" rel="noopener">Cotizar</a>
+          <a class="btn btn-primary" id="w3" target="_blank" rel="noopener">Cotizar</a>
           </div>
           <div class="meta">Categoría: Mecánica, Mantenimiento</div>
         </article>
@@ -273,7 +274,6 @@
     <section id="galeria" class="block">
       <div class="head"><h2 style="margin:0">Galería de trabajos</h2></div>
       <div class="gallery" id="gallery">
-        <!-- Se llena desde contenidoInformacion.gallery; si no hay, placeholders -->
         <div class="ph">Galería</div>
         <div class="ph">Galería</div>
         <div class="ph">Galería</div>
@@ -294,9 +294,6 @@
     </div>
   </footer>
 
-  <!-- Inyección del topbar centralizado -->
-  <script src="js/include-topbar.js"></script>
-
   <script>
     // Footer año
     document.getElementById('y').textContent = new Date().getFullYear();
@@ -311,26 +308,12 @@
         heroImage: 'img/taller-frente.jpg',
         direccion: 'Barrio Medina 8 calle, 6-7 avenida, SPS.',
         telefono: '+504 9561-5205',
-        // Galería por defecto (si no hay nada guardado)
-        gallery: [
-          'img/galeria-1.jpg',
-          'img/galeria-2.jpg',
-          'img/galeria-3.jpg'
-        ],
-        // Imágenes por servicio opcionales (id -> url)
+        gallery: ['img/galeria-1.jpg','img/galeria-2.jpg','img/galeria-3.jpg'],
         serviceImages: {
-          w1: 'img/services/frenos-susp.jpg',
-          w2: 'img/services/refrigeracion.jpg',
-          w3: 'img/services/aceite-filtros.jpg',
-          w4: 'img/services/obd2.jpg',
-          w5: 'img/services/compresion.jpg',
-          w6: 'img/services/leakdown.jpg',
-          w7: 'img/services/kilometraje.jpg',
-          w8: 'img/services/inyectores.jpg',
-          w9: 'img/services/alineacion.jpg',
-          w10:'img/services/venta-instalacion.jpg',
-          w11:'img/services/sensores.jpg',
-          w12:'img/services/frenos-repuestos.jpg'
+          w1:'img/services/frenos-susp.jpg', w2:'img/services/refrigeracion.jpg', w3:'img/services/aceite-filtros.jpg',
+          w4:'img/services/obd2.jpg', w5:'img/services/compresion.jpg', w6:'img/services/leakdown.jpg',
+          w7:'img/services/kilometraje.jpg', w8:'img/services/inyectores.jpg', w9:'img/services/alineacion.jpg',
+          w10:'img/services/venta-instalacion.jpg', w11:'img/services/sensores.jpg', w12:'img/services/frenos-repuestos.jpg'
         }
       };
       let info = null;
@@ -338,23 +321,23 @@
       const cfg = Object.assign({}, DEF, info || {});
       const $ = (s)=>document.querySelector(s);
 
-      // Hero
       if ($('#heroImg') && cfg.heroImage) $('#heroImg').src = cfg.heroImage;
 
-      // WhatsApp base
       const waPlain = (cfg.whatsappNumber || '').replace(/[^\d]/g,'');
       const waBase  = waPlain ? ('https://wa.me/' + waPlain) : '';
-      const waMsgBase = 'Hola, quiero cotizar: ';
+      const waMsgBase = 'Hola, quiero cotizar un servicio';
 
-      // CTA generales
       if ($('#btnWA') && waBase) $('#btnWA').href = waBase + '?text=' + encodeURIComponent('Hola, quiero cotizar un servicio');
+      if ($('#ctaWhatsApp') && waBase) $('#ctaWhatsApp').href = waBase + '?text=' + encodeURIComponent('Hola, quiero agendar un servicio');
 
-      // Contacto
+      // *** Pasamos el CTA al topbar inyectado (por si aún no existe en el DOM) ***
+      window.__waHref = waBase ? waBase + '?text=' + encodeURIComponent(waMsgBase) : '';
+      window.__waHrefCTA = window.__waHref;
+
       if ($('#waSpan')) $('#waSpan').textContent = cfg.whatsappNumber || '+504 9561-5205';
       if ($('#telSpan')) $('#telSpan').textContent = cfg.telefono || cfg.whatsappNumber || '+504 9561-5205';
       if ($('#addrSpan')) $('#addrSpan').textContent = cfg.direccion || '—';
 
-      // Imágenes por servicio (si existen)
       if (cfg.serviceImages && typeof cfg.serviceImages === 'object') {
         Object.entries(cfg.serviceImages).forEach(([id, url])=>{
           const img = document.getElementById('img-'+id);
@@ -362,39 +345,29 @@
         });
       }
 
-      // Galería: usa cfg.gallery (array de URLs)
       (function fillGallery(){
         const gallery = document.getElementById('gallery');
         if (!gallery) return;
         const items = Array.isArray(cfg.gallery) ? cfg.gallery : [];
-        if (items.length === 0) return; // deja los placeholders
-
+        if (items.length === 0) return;
         gallery.innerHTML = '';
         items.forEach((src,i)=>{
           const img = document.createElement('img');
-          img.loading = 'lazy';
-          img.decoding = 'async';
-          img.src = src;
-          img.alt = 'Trabajo ' + (i+1);
+          img.loading = 'lazy'; img.decoding = 'async';
+          img.src = src; img.alt = 'Trabajo ' + (i+1);
           gallery.appendChild(img);
         });
       })();
 
-      // WhatsApp por servicio: agrega el nombre del servicio al mensaje
       (function perServiceWhatsApp(){
         if (!waBase) return;
         const cards = document.querySelectorAll('.card');
         cards.forEach(card=>{
           const title = card.querySelector('.title')?.textContent?.trim() || 'Servicio';
           const btn   = card.querySelector('.btn.btn-primary[id^="w"]');
-          if (btn) btn.href = waBase + '?text=' + encodeURIComponent(waMsgBase + title);
+          if (btn) btn.href = waBase + '?text=' + encodeURIComponent('Hola, quiero cotizar: ' + title);
         });
       })();
-
-      // Guarda el enlace de la CTA para aplicarlo tras inyectar el topbar
-      if (waBase) {
-        window.__waHrefCTA = waBase + '?text=' + encodeURIComponent('Hola, quiero agendar un servicio');
-      }
     })();
 
     // === Filtros y búsqueda (con accesibilidad) ===
@@ -429,12 +402,9 @@
       });
       q?.addEventListener('input', (e)=>{ term = e.target.value; apply(); });
     })();
-
-    // Aplica la CTA del topbar cuando la página termina de cargar
-    window.addEventListener('load', function(){
-      var cta = document.getElementById('ctaWhatsApp');
-      if (cta && window.__waHrefCTA) cta.href = window.__waHrefCTA;
-    });
   </script>
+
+  <!-- Loader del topbar unificado -->
+  <script src="js/include-topbar.js"></script>
 </body>
 </html>

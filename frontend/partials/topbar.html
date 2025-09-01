@@ -1,44 +1,11 @@
 <!-- frontend/partials/topbar.html -->
-<style id="rcv-topbar-styles">
-  .topbar{position:sticky;top:0;z-index:60;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.08)}
-  .topbar-inner{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;max-width:1100px;margin:0 auto}
-  .brand{display:flex;align-items:center;gap:12px}
-  .brand img{width:56px;height:auto;border-radius:10px;object-fit:contain;background:#f8f8f8}
-  .brand .title{font-weight:800;white-space:nowrap}
-  nav ul{margin:0;padding:0;list-style:none;display:flex;gap:12px}
-  nav a{display:block;padding:8px 12px;border-radius:10px}
-  nav a:hover{background:rgba(0,0,0,.05)}
-  .nav-cta{background:#245C8D;color:#fff}
-  .nav-login{border:1px solid #e5e7eb}
-  .nav-login:hover{background:#f3f4f6}
-  .nav-sep{width:1px;height:24px;background:#e5e7eb;margin:0 4px;border-radius:1px;display:inline-block;vertical-align:middle}
-  .hamb{display:inline-flex;align-items:center;justify-content:center;border:1px solid #e5e7eb;border-radius:10px;padding:8px;background:#fff;cursor:pointer}
-  .hamb:active{transform:scale(.98)}
-  @media (max-width:900px){ nav ul{display:none} }
-
-  /* Drawer */
-  .drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:70}
-  .drawer-backdrop.open{opacity:1;pointer-events:auto}
-  .drawer{position:fixed;top:0;right:0;height:100%;width:min(92vw,360px);background:#fff;box-shadow:-8px 0 24px rgba(15,23,42,.18);
-          transform:translateX(100%);transition:transform .25s ease;z-index:80;display:flex;flex-direction:column}
-  .drawer.open{transform:none}
-  .drawer-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #f1f5f9}
-  .drawer-title{font-weight:800}
-  .drawer-body{padding:16px;display:flex;flex-direction:column;gap:12px}
-  .drawer-note{color:#6b7280;background:#f8fafc;padding:12px;border-radius:12px;border:1px dashed #e5e7eb}
-  .drawer-actions{margin-top:auto;padding:16px;border-top:1px solid #f1f5f9}
-  .btn{border:none;border-radius:12px;padding:10px 14px;cursor:pointer}
-  .btn-primary{background:#245C8D;color:#fff}
-  .btn-ghost{background:#fff;border:1px solid #e5e7eb}
-  .active{background:rgba(0,0,0,.07)}
-</style>
-
 <header class="topbar">
-  <div class="topbar-inner">
+  <div class="container topbar-inner">
     <div class="brand">
       <img src="img/logo.png" alt="RCV" />
       <div class="title">Servicios Mecánicos RCV</div>
     </div>
+
     <nav aria-label="Navegación principal">
       <ul>
         <li><a data-page="inicio" href="index.html">Inicio</a></li>
@@ -50,6 +17,7 @@
         <li><a class="nav-cta" id="ctaWhatsApp" href="#" target="_blank" rel="noopener">Agendar</a></li>
       </ul>
     </nav>
+
     <button class="hamb" aria-label="Menú de empleados" title="Menú de empleados" id="btnHamb">☰</button>
   </div>
 </header>
@@ -66,7 +34,7 @@
       <strong>Espacio único para empleados</strong><br/>
       Acceso a panel, kardex, órdenes, facturación y más.
     </div>
-    <p class="muted" style="color:#6b7280;margin:0">
+    <p class="muted" style="color:var(--muted);margin:0">
       Si eres parte del equipo, inicia sesión para continuar.
     </p>
   </div>
@@ -74,3 +42,10 @@
     <a class="btn btn-primary" href="login.html">Iniciar sesión</a>
   </div>
 </aside>
+
+<!-- Pequeños estilos por si alguna página no define estos -->
+<style>
+  .nav-login{border:1px solid #e5e7eb;border-radius:10px;padding:8px 12px}
+  .nav-login:hover{background:#f3f4f6}
+  .nav-sep{width:1px;height:24px;background:#e5e7eb;margin:0 4px;border-radius:1px;display:inline-block;vertical-align:middle}
+</style>

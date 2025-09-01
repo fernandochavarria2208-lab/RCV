@@ -36,17 +36,9 @@
     .hamb:active{transform:scale(.98)}
 
     /* Drawer */
-    .drawer-backdrop{
-      position:fixed;inset:0;background:rgba(0,0,0,.35);
-      opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:70;
-    }
+    .drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:70}
     .drawer-backdrop.open{opacity:1;pointer-events:auto}
-    .drawer{
-      position:fixed;top:0;right:0;height:100%;width:min(92vw,360px);
-      background:#fff;box-shadow: -8px 0 24px rgba(15,23,42,.18);
-      transform:translateX(100%);transition:transform .25s ease;z-index:80;
-      display:flex;flex-direction:column;
-    }
+    .drawer{position:fixed;top:0;right:0;height:100%;width:min(92vw,360px);background:#fff;box-shadow:-8px 0 24px rgba(15,23,42,.18);transform:translateX(100%);transition:transform .25s ease;z-index:80;display:flex;flex-direction:column}
     .drawer.open{transform:none}
     .drawer-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #f1f5f9}
     .drawer-title{font-weight:800}
@@ -108,7 +100,7 @@
       .testi{grid-template-columns:1fr 1fr}
       .grid{grid-template-columns:1fr 1fr}
       nav ul{display:none}
-      /* .hamb ya es visible en todos los tamaños */
+      /* .hamb visible */
     }
     @media (max-width:640px){
       .grid,.testi,.redes{grid-template-columns:1fr}
@@ -116,7 +108,7 @@
   </style>
 </head>
 <body>
-  <!-- Topbar centralizado -->
+  <!-- TOPBAR INYECTADO -->
   <div id="topbarSlot"></div>
 
   <main class="container container--fluid">
@@ -273,9 +265,6 @@
     </div>
   </footer>
 
-  <!-- Inyección del topbar centralizado -->
-  <script src="js/include-topbar.js"></script>
-
   <script>
     // Año en footer
     document.getElementById('y').textContent = new Date().getFullYear();
@@ -305,25 +294,24 @@
       const waHref = waPlain ? ('https://wa.me/' + waPlain + '?text=' + waMsg) : '#';
       if ($('#btnWA'))  $('#btnWA').href = waHref;
       if ($('#btnWA2')) $('#btnWA2').href = waHref;
+      if ($('#ctaWhatsApp')) $('#ctaWhatsApp').href = waHref; // si ya está inyectado
+
+      // *** Pasamos el CTA al topbar inyectado (por si aún no existe en el DOM) ***
+      window.__waHref = waHref;
+      window.__waHrefCTA = waHref;
+
       if ($('#waSpan')) $('#waSpan').textContent = cfg.whatsappNumber || '+504 9561-5205';
       if ($('#telSpan')) $('#telSpan').textContent = cfg.telefono || cfg.whatsappNumber || '+504 9561-5205';
 
-      // EX: la CTA del topbar se inyecta después; guardamos el href para aplicarlo al cargar.
-      window.__waHref = waHref;
-
-      // Redes y catálogo
       if ($('#fbLink')) $('#fbLink').href = cfg.facebookUrl;
       if ($('#ttLink')) $('#ttLink').href = cfg.tiktokUrl;
       if ($('#waCatLink')) $('#waCatLink').href = cfg.whatsappCatalogUrl;
 
-      // Mapa
       if ($('#mapsFrame')) $('#mapsFrame').src = cfg.mapsEmbed;
-
-      // Dirección
       if ($('#addrSpan')) $('#addrSpan').textContent = cfg.direccion || '—';
     })();
 
-    // Demo simple de "Consulta": mueve la barra a valor aleatorio (sólo visual)
+    // Demo simple de "Consulta"
     (function(){
       const bar = document.getElementById('estadoBar');
       const titulo = document.getElementById('estadoTitulo');
@@ -346,12 +334,9 @@
         const qO=document.getElementById('qOrden'); if(qO) qO.value='';
       });
     })();
-
-    // Al terminar de cargar la página (ya con el topbar inyectado), aplicamos el href de WhatsApp
-    window.addEventListener('load', function(){
-      var cta = document.getElementById('ctaWhatsApp');
-      if (cta && window.__waHref) cta.href = window.__waHref;
-    });
   </script>
+
+  <!-- Loader del topbar unificado -->
+  <script src="js/include-topbar.js"></script>
 </body>
 </html>
