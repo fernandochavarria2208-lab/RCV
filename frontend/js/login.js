@@ -6,36 +6,35 @@
   const mensajeError = document.getElementById('mensajeError');
   const chkMostrar = document.getElementById('mostrarPassword');
 
-  // ==== CONFIG ====
-  // Define la base de la API desde localStorage o usa localhost por defecto.
-  // Puedes cambiarla en consola del navegador:
-  //   localStorage.setItem('API_BASE','http://localhost:3001/api')
-  const API_BASE = localStorage.getItem('API_BASE') || 'http://localhost:3001/api';
+  // ==== CONFIG (mejora mínima) ====
+  // 1) Tomar primero window.API_BASE (que setea env.js), luego localStorage, y por último dev.
+  // 2) Si API_BASE viene como ruta relativa (ej. "/api"), convertir a absoluta con el origin.
+  // 3) Aviso si en GitHub Pages se quedó apuntando a localhost.
+  (function guardAPIBase(){
+    var raw = (window.API_BASE || localStorage.getItem('API_BASE') || 'http://localhost:3001/api');
+    if (typeof raw === 'string' && raw.startsWith('/')) raw = location.origin + raw;
+    if (location.hostname.endsWith('.github.io') && /localhost|127\.0\.0\.1/.test(raw)) {
+      // limpiar un valor malo heredado para no confundir
+      localStorage.removeItem('API_BASE');
+    }
+    // reexpone por si otros módulos lo miran
+    window.API_BASE = raw;
+  })();
+  const API_BASE = window.API_BASE;
 
-  // --- NUEVO: helper para modo admin ---
+  // --- Helper: detectar admin ---
   function esAdmin(user) {
-    // Acepta múltiples variantes de rol/permisos
     const rol = (user?.rol || '').toString().toLowerCase().trim();
     const perms = Array.isArray(user?.permisos) ? user.permisos.map(p => (p || '').toString().toLowerCase()) : [];
-
-    // Rol que contenga "admin" (administrador, admin, superadmin)
     const porRol = rol.includes('admin');
-
-    // Permisos comunes para panel de administración
     const clavesAdmin = ['admin', 'superadmin', 'panel_admin', 'dashboard_admin'];
     const porPermiso = perms.some(p => clavesAdmin.includes(p));
-
     return porRol || porPermiso;
   }
-
   function aplicarAdminMode(user) {
-    if (esAdmin(user)) {
-      localStorage.setItem('adminMode', 'true'); // <-- activa modo admin
-    } else {
-      localStorage.removeItem('adminMode');      // <-- asegura que no quede activo
-    }
+    if (esAdmin(user)) localStorage.setItem('adminMode', 'true');
+    else localStorage.removeItem('adminMode');
   }
-  // --- FIN NUEVO ---
 
   // Toggle mostrar/ocultar contraseña
   if (chkMostrar) {
@@ -45,28 +44,26 @@
   }
 
   function mostrarError(msg) {
+    const m = msg || 'Ocurrió un error.';
     if (mensajeError) {
-      mensajeError.textContent = msg || 'Ocurrió un error.';
+      mensajeError.textContent = m;
       mensajeError.style.color = 'red';
     } else {
-      alert(msg || 'Ocurrió un error.');
+      alert(m);
     }
   }
 
-  // Normaliza paginaDestino (puede ser archivo o URL absoluta)
   function obtenerDestino() {
     const dest = localStorage.getItem('paginaDestino') || '';
     if (!dest) return 'admin.html';
-    if (/^https?:\/\//i.test(dest)) return dest; // URL absoluta
-    return dest; // relativa
+    if (/^https?:\/\//i.test(dest)) return dest;
+    return dest;
   }
 
-  // === LOGIN contra API (JWT) ===
   async function loginBD(usuario, password) {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // No mandamos X-Actor aquí; JWT será devuelto por el backend
       body: JSON.stringify({ usuario, password })
     });
 
@@ -77,16 +74,12 @@
       const msg = (data && (data.error || data.message)) || `Error de autenticación (HTTP ${res.status})`;
       throw new Error(msg);
     }
-
-    // data esperado: { ok: true, token, user: { id, usuario, nombre, rol, ... } }
     if (!data.token || !data.user) {
       throw new Error('Respuesta de login incompleta (falta token o user)');
     }
 
-    // Guarda token para que api.js lo envíe en Authorization: Bearer ...
     localStorage.setItem('token', data.token);
     localStorage.setItem('authToken', data.token); // compatibilidad
-
     return data;
   }
 
@@ -97,18 +90,20 @@
 
     const usuario = (inputUsuario.value || '').trim();
     const password = (inputPassword.value || '').trim();
-
     if (!usuario || !password) {
       mostrarError('Por favor, complete todos los campos.');
       return;
     }
 
+    // Evitar doble envío
+    const btn = form.querySelector('button[type="submit"]');
+    const prevTxt = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Ingresando…'; btn.setAttribute('aria-busy','true'); }
+    if (mensajeError) mensajeError.textContent = '';
+
     try {
-      // 1) Autenticar contra la API (obtiene JWT y datos de usuario)
       const r = await loginBD(usuario, password);
       const u = r.user;
-
-      // 2) Guardar sesión para el resto del sistema
       const usuarioActual = {
         id: u.id,
         usuario: u.usuario,
@@ -120,23 +115,26 @@
         permisos: Array.isArray(u.permisos) ? u.permisos : (u.permisos || [])
       };
       localStorage.setItem('usuarioActual', JSON.stringify(usuarioActual));
-
-      // --- NUEVO: activar/desactivar adminMode automáticamente según el usuario ---
       aplicarAdminMode(usuarioActual);
-      // --- FIN NUEVO ---
 
-      // 3) Redirecciones
       if (usuarioActual.forzarCambio) {
         window.location.href = 'cambiar-clave.html';
         return;
       }
-
       const destino = obtenerDestino();
-      localStorage.removeItem('paginaDestino'); // evitar bucles
+      localStorage.removeItem('paginaDestino');
       window.location.href = destino || 'admin.html';
     } catch (err) {
-      mostrarError(err.message || 'Usuario o contraseña incorrectos.');
+      const netErr = /NetworkError|Failed to fetch|TypeError/i.test(String(err?.message || err));
+      if (location.hostname.endsWith('.github.io') && /localhost|127\.0\.0\.1/.test(API_BASE)) {
+        mostrarError('No se pudo contactar la API porque API_BASE apunta a localhost. Ajusta API_BASE en producción con tu URL de backend.');
+      } else if (netErr) {
+        mostrarError('No se pudo contactar la API. Verifica tu conexión o la URL de API_BASE.');
+      } else {
+        mostrarError(err.message || 'Usuario o contraseña incorrectos.');
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = prevTxt; btn.removeAttribute('aria-busy'); }
     }
   });
 })();
-

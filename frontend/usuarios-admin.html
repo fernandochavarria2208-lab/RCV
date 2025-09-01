@@ -194,26 +194,34 @@
 
   <!-- Scripts (los mismos de tu proyecto) -->
   <!-- ✅ AÑADIDO: fija API_BASE si no existe para apuntar al backend en 3001 -->
-  <script>
-    (function(){
-      try{
-        var k='API_BASE';
-        if(!localStorage.getItem(k)){
-          localStorage.setItem(k,'http://localhost:3001/api');
-        }
-      }catch(e){}
-    })();
-  </script>
+  <!-- Limpieza: si quedó guardado localhost en API_BASE y estamos en GitHub Pages, lo borramos -->
+<script>
+  (function(){
+    if (location.hostname.endsWith('.github.io')) {
+      var v = localStorage.getItem('API_BASE') || '';
+      if (/localhost|127\.0\.0\.1/.test(v)) localStorage.removeItem('API_BASE');
+    }
+  })();
+</script>
 
-  <script src="js/common.js"></script>
-  <script src="js/global.js"></script>
-  <script src="js/panel-links.js"></script>
-  <script src="js/topbar.js"></script>
-  <script src="js/toast.js"></script>
-  <script src="js/perms.js"></script>
-  <script src="js/logout.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/usuarios-admin.js"></script>
+<!-- 1) Debe ir SIEMPRE primero -->
+<script src="js/env.js"></script>
+
+<!-- 2) API antes de módulos que la usen -->
+<script src="js/api.js"></script>
+
+<!-- 3) Resto de módulos comunes -->
+<script src="js/common.js"></script>
+<script src="js/global.js"></script>
+<script src="js/panel-links.js"></script>
+<script src="js/topbar.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/perms.js"></script>
+<script src="js/logout.js"></script>
+
+<!-- 4) Script específico de la página, al final -->
+<script src="js/usuarios-admin.js"></script>
+
 
   <!-- 🔄 Live sync de permisos (no invade usuarios-admin.js) -->
   <script>
