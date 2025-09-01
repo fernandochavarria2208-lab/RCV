@@ -19,9 +19,7 @@
         if (res.ok) {
           console.info('[topbar] cargado desde:', u);
           return await res.text();
-        } else {
-          console.warn('[topbar] intento fallido:', u, res.status);
-        }
+        } catch (e) {}
       } catch (e) {
         console.warn('[topbar] error al intentar:', u, e);
       }
@@ -42,10 +40,8 @@
         document.querySelector('a[data-page="consulta"]')?.classList.add('active');
       } else if (hash.includes('contacto')) {
         document.querySelector('a[data-page="contacto"]')?.classList.add('active');
-      } else {
-        if (path.endsWith('/index.html') || /\/$/.test(path)) {
-          document.querySelector('a[data-page="inicio"]')?.classList.add('active');
-        }
+      } else if (path.endsWith('/index.html') || /\/$/.test(path)) {
+        document.querySelector('a[data-page="inicio"]')?.classList.add('active');
       }
     } catch (e) {
       console.warn('[topbar] no se pudo marcar el link activo:', e);
@@ -85,32 +81,50 @@
     }
   }
 
+  function removeDuplicates(keepHeader) {
+    // elimina otros headers.topbar que no sean el nuevo
+    const headers = Array.from(document.querySelectorAll('header.topbar'));
+    headers.forEach(h => { if (h !== keepHeader) h.remove(); });
+    // deja solo un drawer/backdrop
+    const drawers = Array.from(document.querySelectorAll('#drawer'));
+    const backs   = Array.from(document.querySelectorAll('#drawerBackdrop'));
+    drawers.slice(1).forEach(n => n.remove());
+    backs.slice(1).forEach(n => n.remove());
+  }
+
   async function injectTopbar() {
-    // 1) Determina dónde inyectar/reemplazar:
-    //    - Preferir #topbarSlot si existe
-    //    - Si no, usar un header.topbar que ya esté en la página (y reemplazarlo)
-    //    - Si no hay ninguno, crear un slot al inicio del body
-    let target = document.getElementById('topbarSlot') || document.querySelector('header.topbar');
+    // Preferimos reemplazar un header.topbar existente
+    let target = document.querySelector('header.topbar');
+    // Si no hay, usamos el slot (si existe)
+    if (!target) target = document.getElementById('topbarSlot');
+    // Si tampoco hay, creamos un slot al principio del body
+    let created = false;
     if (!target) {
       target = document.createElement('div');
       target.id = 'topbarSlotAuto';
       document.body.insertBefore(target, document.body.firstChild);
+      created = true;
     }
 
-    // 2) Carga el parcial desde la primera ruta válida
     let html = '';
-    try {
-      html = await fetchFirstOk(candidatePaths());
-    } catch (e) {
-      console.error('[topbar] No se pudo cargar:', e);
-      return;
+    try { html = await fetchFirstOk(candidatePaths()); }
+    catch (e) { console.error('[topbar] No se pudo cargar:', e); return; }
+
+    // Inyecta/reemplaza
+    if (created || target.id === 'topbarSlot' || target.id === 'topbarSlotAuto') {
+      target.outerHTML = html;
+      // el nuevo header es el primero del DOM
+      target = document.querySelector('header.topbar');
+    } else {
+      // era un header existente: lo reemplazamos completo
+      target.outerHTML = html;
+      target = document.querySelector('header.topbar');
     }
 
-    // 3) Reemplaza el target por el parcial (incluye header + drawer)
-    //    outerHTML reemplaza el nodo completo, ideal si el target era <header>
-    target.outerHTML = html;
+    // Limpia duplicados por si había un header previo
+    if (target) removeDuplicates(target);
 
-    // 4) Después de que el HTML está en el DOM, enlaza comportamientos
+    // Conecta comportamientos y CTA
     markActiveLink();
     wireDrawer();
     applyWhatsAppCTA();
