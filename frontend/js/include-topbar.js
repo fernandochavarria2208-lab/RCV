@@ -1,15 +1,20 @@
 // frontend/js/include-topbar.js
 (function () {
+  // --- Rutas candidatas al parcial (con bust de caché) ---
   function candidatePaths() {
     const here = location.href;
-    const paths = [
+    const raw = [
       'partials/topbar.html',
       '../partials/topbar.html',
       '../../partials/topbar.html',
       'frontend/partials/topbar.html',
       '../frontend/partials/topbar.html'
     ];
-    return paths.map(p => new URL(p, here).href);
+    return raw.map(p => {
+      const u = new URL(p, here);
+      u.searchParams.set('v', '3'); // cache-bust sencillo
+      return u.href;
+    });
   }
 
   async function fetchFirstOk(urls) {
@@ -33,8 +38,8 @@
     try {
       const path = (location.pathname || '').toLowerCase();
       const hash = (location.hash || '').toLowerCase();
-      const links = document.querySelectorAll('header.topbar nav a[data-page]');
-      links.forEach(a => a.classList.remove('active'));
+      document.querySelectorAll('header.topbar nav a[data-page]')
+        .forEach(a => a.classList.remove('active'));
 
       if (path.endsWith('/servicios.html')) {
         document.querySelector('a[data-page="servicios"]')?.classList.add('active');
@@ -50,31 +55,6 @@
     }
   }
 
-  function wireDrawer() {
-    const drawer   = document.getElementById('drawer');
-    const backdrop = document.getElementById('drawerBackdrop');
-    const openBtn  = document.getElementById('btnHamb');
-    const closeBtn = document.getElementById('btnCloseDrawer');
-    if (!drawer || !backdrop) return;
-
-    function openDrawer(){
-      drawer.classList.add('open');
-      backdrop.classList.add('open');
-      drawer.setAttribute('aria-hidden','false');
-      document.body.style.overflow='hidden';
-    }
-    function closeDrawer(){
-      drawer.classList.remove('open');
-      backdrop.classList.remove('open');
-      drawer.setAttribute('aria-hidden','true');
-      document.body.style.overflow='';
-    }
-    openBtn?.addEventListener('click', openDrawer);
-    closeBtn?.addEventListener('click', closeDrawer);
-    backdrop?.addEventListener('click', closeDrawer);
-    window.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDrawer(); });
-  }
-
   function applyWhatsAppCTA() {
     const cta = document.getElementById('ctaWhatsApp');
     if (cta) {
@@ -87,45 +67,93 @@
     // Elimina otros headers.topbar que no sean el nuevo
     const headers = Array.from(document.querySelectorAll('header.topbar'));
     headers.forEach(h => { if (h !== keepHeader) h.remove(); });
-    // Deja solo un drawer/backdrop
+
+    // Deja un solo drawer/backdrop
     const drawers = Array.from(document.querySelectorAll('#drawer'));
     const backs   = Array.from(document.querySelectorAll('#drawerBackdrop'));
     drawers.slice(1).forEach(n => n.remove());
     backs.slice(1).forEach(n => n.remove());
   }
 
+  // --- Delegación global para el Drawer (funciona aunque se reinyecte) ---
+  function getDrawerEls() {
+    return {
+      drawer:   document.getElementById('drawer'),
+      backdrop: document.getElementById('drawerBackdrop')
+    };
+  }
+  function openDrawer(){
+    const { drawer, backdrop } = getDrawerEls();
+    if (!drawer || !backdrop) return;
+    drawer.classList.add('open');
+    backdrop.classList.add('open');
+    drawer.setAttribute('aria-hidden','false');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer(){
+    const { drawer, backdrop } = getDrawerEls();
+    if (!drawer || !backdrop) return;
+    drawer.classList.remove('open');
+    backdrop.classList.remove('open');
+    drawer.setAttribute('aria-hidden','true');
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
+  }
+
+  // Un solo listener global para todos los clics relevantes
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t.closest('#btnHamb')) { e.preventDefault(); openDrawer(); }
+    if (t.closest('#btnCloseDrawer') || t.closest('#drawerBackdrop')) {
+      e.preventDefault(); closeDrawer();
+    }
+  }, true);
+
+  // Escape cierra el drawer
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  // --- Inyección segura del topbar (sin perder eventos) ---
   async function injectTopbar() {
-    // 1) Preferimos reemplazar un header.topbar existente
-    let target = document.querySelector('header.topbar');
-    // 2) Si no hay, probamos slot explícito
-    if (!target) target = document.getElementById('topbarSlot');
-    // 3) Si tampoco hay, creamos slot al principio
+    // Punto de anclaje: si hay header.topbar viejo, lo usaremos como referencia
+    let anchor = document.querySelector('header.topbar')
+              || document.getElementById('topbarSlot');
+
+    // Si no hay, creamos un marcador al principio del body
     let created = false;
-    if (!target) {
-      target = document.createElement('div');
-      target.id = 'topbarSlotAuto';
-      document.body.insertBefore(target, document.body.firstChild);
+    if (!anchor) {
+      anchor = document.createElement('div');
+      anchor.id = 'topbarSlotAuto';
+      document.body.insertBefore(anchor, document.body.firstChild);
       created = true;
     }
 
-    // 4) Cargar parcial
     let html = '';
-    try { html = await fetchFirstOk(candidatePaths()); }
-    catch (e) { console.error('[topbar] No se pudo cargar:', e); return; }
-
-    // 5) Inyectar/reemplazar
-    if (created || target.id === 'topbarSlot' || target.id === 'topbarSlotAuto') {
-      target.outerHTML = html;
-      target = document.querySelector('header.topbar');
-    } else {
-      target.outerHTML = html;
-      target = document.querySelector('header.topbar');
+    try {
+      html = await fetchFirstOk(candidatePaths());
+    } catch (e) {
+      console.error('[topbar] No se pudo cargar:', e);
+      return;
     }
 
-    // 6) Limpiar duplicados y conectar lógica
-    if (target) removeDuplicates(target);
+    // Inserta el nuevo topbar ANTES del ancla
+    anchor.insertAdjacentHTML('beforebegin', html);
+
+    // Obtiene el header recién insertado (el primero en el DOM)
+    const newHeader = document.querySelector('header.topbar');
+
+    // Elimina el ancla (si era un header viejo o placeholder)
+    if (created || anchor.matches('header.topbar') || anchor.id === 'topbarSlot') {
+      anchor.remove();
+    }
+
+    // Limpia duplicados (si quedaron)
+    if (newHeader) removeDuplicates(newHeader);
+
+    // Ajustes finales
     markActiveLink();
-    wireDrawer();
     applyWhatsAppCTA();
   }
 
