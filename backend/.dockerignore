@@ -1,4 +1,3 @@
-# Ignora dependencias y artefactos de desarrollo
 node_modules
 npm-debug.log
 .yarn
