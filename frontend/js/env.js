@@ -1,9 +1,15 @@
+/* eslint-env browser */
+/* global localStorage, window */
 "use strict";
 
-// Fuerza la base de la API a Cloud Run en todo el sitio
 (function () {
   const PROD_API = "https://rcv-api-nulp72qabq-uc.a.run.app/api";
-  localStorage.setItem("API_BASE", PROD_API);
+
+  try {
+    localStorage.setItem("API_BASE", PROD_API);
+  } catch (_) {
+    // Ignora si el storage está bloqueado (modo incógnito estricto, etc.)
+  }
   window.API_BASE = PROD_API;
   // console.log("[API_BASE]", PROD_API);
 })();
