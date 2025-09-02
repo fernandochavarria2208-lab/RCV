@@ -1,6 +1,5 @@
-// frontend/js/include-topbar.js (v8)
+// frontend/js/include-topbar.v9.js
 (function () {
-  // --- Rutas candidatas al parcial (con cache-bust) ---
   function candidatePaths() {
     const here = location.href;
     const raw = [
@@ -12,7 +11,7 @@
     ];
     return raw.map(p => {
       const u = new URL(p, here);
-      u.searchParams.set('v', '8');
+      u.searchParams.set('v', '9');
       return u.href;
     });
   }
@@ -30,7 +29,6 @@
     throw new Error('No se encontró partials/topbar.html en rutas candidatas.');
   }
 
-  // --- Marcado de link activo ---
   function markActiveLink() {
     try {
       const path = (location.pathname || '').toLowerCase();
@@ -51,7 +49,6 @@
     }
   }
 
-  // --- CTA de WhatsApp (si la página ya calculó __waHref / __waHrefCTA) ---
   function applyWhatsAppCTA() {
     const cta = document.getElementById('ctaWhatsApp');
     if (cta) {
@@ -60,7 +57,7 @@
     }
   }
 
-  // ========= Drawer (con forzado de estilos) =========
+  // ========= Drawer (forzando estilos para ganar a cualquier CSS) =========
   function getDrawerEls() {
     return {
       drawer:   document.getElementById('drawer'),
@@ -71,7 +68,6 @@
   function ensureDrawer() {
     let { drawer, backdrop } = getDrawerEls();
     if (!drawer || !backdrop) {
-      // Crear fallback mínimo
       document.body.insertAdjacentHTML('beforeend', `
 <div id="drawerBackdrop"></div>
 <aside id="drawer" aria-hidden="true" aria-labelledby="drawerTitle" role="dialog">
@@ -88,11 +84,9 @@
       ({ drawer, backdrop } = getDrawerEls());
     }
 
-    // Mover SIEMPRE al final del body (para z-index natural máximo)
     try { document.body.appendChild(backdrop); } catch {}
     try { document.body.appendChild(drawer); } catch {}
 
-    // Estilos base **con !important** para ganar a cualquier CSS externo
     const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
 
     if (backdrop) {
@@ -102,21 +96,18 @@
       s(backdrop,'opacity','0');
       s(backdrop,'pointer-events','none');
       s(backdrop,'transition','opacity .2s ease');
-      s(backdrop,'z-index','2147483646');  // debajo del drawer
+      s(backdrop,'z-index','2147483646');
     }
     if (drawer) {
       s(drawer,'position','fixed');
-      s(drawer,'top','0');
-      s(drawer,'right','0');
-      s(drawer,'height','100%');
-      s(drawer,'width','min(92vw,360px)');
+      s(drawer,'top','0'); s(drawer,'right','0');
+      s(drawer,'height','100%'); s(drawer,'width','min(92vw,360px)');
       s(drawer,'background','#fff');
       s(drawer,'box-shadow','-8px 0 24px rgba(15,23,42,.18)');
       s(drawer,'transform','translateX(100%)');
       s(drawer,'transition','transform .25s ease');
       s(drawer,'z-index','2147483647');
-      s(drawer,'display','flex');
-      s(drawer,'flex-direction','column');
+      s(drawer,'display','flex'); s(drawer,'flex-direction','column');
 
       const header = drawer.querySelector('.drawer-header');
       const actions = drawer.querySelector('.drawer-actions');
@@ -125,15 +116,12 @@
       const closeBtn = drawer.querySelector('#btnCloseDrawer');
       const primary = drawer.querySelector('.btn.btn-primary');
 
-      if (header) {
-        s(header,'display','flex'); s(header,'align-items','center'); s(header,'justify-content','space-between');
-        s(header,'padding','14px 16px'); s(header,'border-bottom','1px solid #f1f5f9');
-      }
-      if (actions) { s(actions,'margin-top','auto'); s(actions,'padding','16px'); s(actions,'border-top','1px solid #f1f5f9'); }
-      if (note) { s(note,'color','#6b7280'); s(note,'background','#f8fafc'); s(note,'padding','12px'); s(note,'border-radius','12px'); s(note,'border','1px dashed #e5e7eb'); }
-      if (body) { s(body,'padding','16px'); s(body,'display','flex'); s(body,'flex-direction','column'); s(body,'gap','12px'); }
-      if (closeBtn) { s(closeBtn,'background','#fff'); s(closeBtn,'border','1px solid #e5e7eb'); s(closeBtn,'border-radius','12px'); s(closeBtn,'padding','8px 12px'); s(closeBtn,'cursor','pointer'); }
-      if (primary) { s(primary,'display','inline-block'); s(primary,'border','none'); s(primary,'border-radius','12px'); s(primary,'padding','10px 14px'); s(primary,'cursor','pointer'); s(primary,'background','#245C8D'); s(primary,'color','#fff'); s(primary,'text-decoration','none'); }
+      if (header) { s(header,'display','flex'); s(header,'align-items','center'); s(header,'justify-content','space-between'); s(header,'padding','14px 16px'); s(header,'border-bottom','1px solid #f1f5f9'); }
+      if (actions){ s(actions,'margin-top','auto'); s(actions,'padding','16px'); s(actions,'border-top','1px solid #f1f5f9'); }
+      if (note)   { s(note,'color','#6b7280'); s(note,'background','#f8fafc'); s(note,'padding','12px'); s(note,'border-radius','12px'); s(note,'border','1px dashed #e5e7eb'); }
+      if (body)   { s(body,'padding','16px'); s(body,'display','flex'); s(body,'flex-direction','column'); s(body,'gap','12px'); }
+      if (closeBtn){ s(closeBtn,'background','#fff'); s(closeBtn,'border','1px solid #e5e7eb'); s(closeBtn,'border-radius','12px'); s(closeBtn,'padding','8px 12px'); s(closeBtn,'cursor','pointer'); }
+      if (primary){ s(primary,'display','inline-block'); s(primary,'border','none'); s(primary,'border-radius','12px'); s(primary,'padding','10px 14px'); s(primary,'cursor','pointer'); s(primary,'background','#245C8D'); s(primary,'color','#fff'); s(primary,'text-decoration','none'); }
     }
   }
 
@@ -141,20 +129,16 @@
     ensureDrawer();
     const { drawer, backdrop } = getDrawerEls();
     if (!drawer || !backdrop) return;
-
     const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
 
-    // Forzar visibilidad por si hay CSS agresivo
     s(drawer,'transform','none');
     s(backdrop,'opacity','1');
     s(backdrop,'pointer-events','auto');
     drawer.setAttribute('aria-hidden','false');
 
-    // Bloqueo de scroll con !important
     document.documentElement.style.setProperty('overflow','hidden','important');
     document.body.style.setProperty('overflow','hidden','important');
 
-    // Por si alguna animación/JS externo lo cambia inmediatamente:
     requestAnimationFrame(()=>{ s(drawer,'transform','none'); s(backdrop,'opacity','1'); s(backdrop,'pointer-events','auto'); });
     setTimeout(()=>{ s(drawer,'transform','none'); s(backdrop,'opacity','1'); s(backdrop,'pointer-events','auto'); }, 60);
   }
@@ -162,7 +146,6 @@
   function closeDrawer(){
     const { drawer, backdrop } = getDrawerEls();
     if (!drawer || !backdrop) return;
-
     const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
 
     s(drawer,'transform','translateX(100%)');
@@ -174,7 +157,6 @@
     document.body.style.removeProperty('overflow');
   }
 
-  // Delegación global: #btnHamb, .hamb, [data-drawer-open]
   document.addEventListener('click', (e) => {
     const t = e.target;
     if (t.closest('#btnHamb') || t.closest('.hamb') || t.closest('[data-drawer-open]')) {
@@ -187,7 +169,6 @@
 
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 
-  // Elimina duplicados si los hubiera
   function removeDuplicates(keepHeader) {
     const headers = Array.from(document.querySelectorAll('header.topbar'));
     headers.forEach(h => { if (h !== keepHeader) h.remove(); });
@@ -198,7 +179,6 @@
     backs.slice(1).forEach(n => n.remove());
   }
 
-  // Inyección segura del topbar
   async function injectTopbar() {
     let anchor = document.querySelector('header.topbar') || document.getElementById('topbarSlot');
     let created = false;
@@ -229,12 +209,11 @@
     markActiveLink();
     applyWhatsAppCTA();
 
-    // Reafirmar al final del ciclo
     setTimeout(ensureDrawer, 0);
   }
 
   function boot() {
-    ensureDrawer(); // como mínimo, que exista
+    ensureDrawer();
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', injectTopbar);
     } else {
@@ -243,7 +222,6 @@
   }
   boot();
 
-  // Helpers para consola
   window.__openDrawer  = openDrawer;
   window.__closeDrawer = closeDrawer;
 })();
