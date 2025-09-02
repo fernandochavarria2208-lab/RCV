@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Servicios — Servicios Mecánicos RCV</title>
 
+    <!-- API base para producción -->
+  <meta name="rcv-api" content="https://rcv-api-nulp72qabq-uc.a.run.app/api">
+  <script>
+    (function(){
+      const api = document.querySelector('meta[name="rcv-api"]')?.content || 'http://localhost:3001/api';
+      const cur = localStorage.getItem('API_BASE');
+      if (cur !== api) localStorage.setItem('API_BASE', api);
+    })();
+  </script>
+  
   <!-- SEO básico -->
   <meta name="description" content="Servicios Mecánicos RCV: mecánica, diagnóstico y mantenimiento con garantía. Cotiza por WhatsApp y recibe atención profesional." />
   <meta property="og:title" content="Servicios — Servicios Mecánicos RCV" />
