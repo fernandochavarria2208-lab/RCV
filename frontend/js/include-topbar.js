@@ -1,4 +1,4 @@
-// frontend/js/include-topbar.js (v7)
+// frontend/js/include-topbar.js (v8)
 (function () {
   // --- Rutas candidatas al parcial (con cache-bust) ---
   function candidatePaths() {
@@ -12,7 +12,7 @@
     ];
     return raw.map(p => {
       const u = new URL(p, here);
-      u.searchParams.set('v', '7');
+      u.searchParams.set('v', '8');
       return u.href;
     });
   }
@@ -60,7 +60,7 @@
     }
   }
 
-  // ----- Drawer helpers -----
+  // ========= Drawer (con forzado de estilos) =========
   function getDrawerEls() {
     return {
       drawer:   document.getElementById('drawer'),
@@ -70,103 +70,108 @@
 
   function ensureDrawer() {
     let { drawer, backdrop } = getDrawerEls();
-    if (drawer && backdrop) return;
-
-    const tpl = `
-<div class="drawer-backdrop" id="drawerBackdrop"></div>
-<aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawerTitle" role="dialog">
+    if (!drawer || !backdrop) {
+      // Crear fallback mínimo
+      document.body.insertAdjacentHTML('beforeend', `
+<div id="drawerBackdrop"></div>
+<aside id="drawer" aria-hidden="true" aria-labelledby="drawerTitle" role="dialog">
   <div class="drawer-header">
     <div id="drawerTitle" class="drawer-title">Área interna</div>
     <button class="btn btn-ghost" id="btnCloseDrawer" aria-label="Cerrar">✕</button>
   </div>
   <div class="drawer-body">
-    <div class="drawer-note">
-      <strong>Espacio único para empleados</strong><br/>
-      Acceso a panel, kardex, órdenes, facturación y más.
-    </div>
+    <div class="drawer-note"><strong>Espacio único para empleados</strong><br/>Acceso a panel, kardex, órdenes, facturación y más.</div>
     <p class="muted" style="margin:0">Si eres parte del equipo, inicia sesión para continuar.</p>
   </div>
-  <div class="drawer-actions">
-    <a class="btn btn-primary" href="login.html">Iniciar sesión</a>
-  </div>
-</aside>`;
-    document.body.insertAdjacentHTML('beforeend', tpl);
+  <div class="drawer-actions"><a class="btn btn-primary" href="login.html">Iniciar sesión</a></div>
+</aside>`);
+      ({ drawer, backdrop } = getDrawerEls());
+    }
 
-    // Estilos base inline (evita depender de CSS externo)
-    ({ drawer, backdrop } = getDrawerEls());
+    // Mover SIEMPRE al final del body (para z-index natural máximo)
+    try { document.body.appendChild(backdrop); } catch {}
+    try { document.body.appendChild(drawer); } catch {}
+
+    // Estilos base **con !important** para ganar a cualquier CSS externo
+    const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
+
     if (backdrop) {
-      Object.assign(backdrop.style, {
-        position:'fixed', inset:'0px', background:'rgba(0,0,0,.35)',
-        opacity:'0', pointerEvents:'none', transition:'opacity .2s ease',
-        zIndex:'9998'
-      });
+      s(backdrop,'position','fixed');
+      s(backdrop,'inset','0');
+      s(backdrop,'background','rgba(0,0,0,.35)');
+      s(backdrop,'opacity','0');
+      s(backdrop,'pointer-events','none');
+      s(backdrop,'transition','opacity .2s ease');
+      s(backdrop,'z-index','2147483646');  // debajo del drawer
     }
     if (drawer) {
-      Object.assign(drawer.style, {
-        position:'fixed', top:'0', right:'0', height:'100%',
-        width:'min(92vw,360px)', background:'#fff',
-        boxShadow:'-8px 0 24px rgba(15,23,42,.18)',
-        transform:'translateX(100%)', transition:'transform .25s ease',
-        zIndex:'9999', display:'flex', flexDirection:'column'
-      });
-      // Subpartes mínimas
+      s(drawer,'position','fixed');
+      s(drawer,'top','0');
+      s(drawer,'right','0');
+      s(drawer,'height','100%');
+      s(drawer,'width','min(92vw,360px)');
+      s(drawer,'background','#fff');
+      s(drawer,'box-shadow','-8px 0 24px rgba(15,23,42,.18)');
+      s(drawer,'transform','translateX(100%)');
+      s(drawer,'transition','transform .25s ease');
+      s(drawer,'z-index','2147483647');
+      s(drawer,'display','flex');
+      s(drawer,'flex-direction','column');
+
       const header = drawer.querySelector('.drawer-header');
       const actions = drawer.querySelector('.drawer-actions');
       const note = drawer.querySelector('.drawer-note');
-      if (header) {
-        Object.assign(header.style, {
-          display:'flex', alignItems:'center', justifyContent:'space-between',
-          padding:'14px 16px', borderBottom:'1px solid #f1f5f9'
-        });
-      }
-      if (actions) {
-        Object.assign(actions.style, {
-          marginTop:'auto', padding:'16px', borderTop:'1px solid #f1f5f9'
-        });
-      }
-      if (note) {
-        Object.assign(note.style, {
-          color:'#6b7280', background:'#f8fafc', padding:'12px',
-          borderRadius:'12px', border:'1px dashed #e5e7eb'
-        });
-      }
       const body = drawer.querySelector('.drawer-body');
-      if (body) Object.assign(body.style, { padding:'16px', display:'flex', flexDirection:'column', gap:'12px' });
       const closeBtn = drawer.querySelector('#btnCloseDrawer');
-      if (closeBtn) Object.assign(closeBtn.style, { background:'#fff', border:'1px solid #e5e7eb', borderRadius:'12px', padding:'8px 12px', cursor:'pointer' });
       const primary = drawer.querySelector('.btn.btn-primary');
-      if (primary) Object.assign(primary.style, { display:'inline-block', border:'none', borderRadius:'12px', padding:'10px 14px', cursor:'pointer', background:'#245C8D', color:'#fff', textDecoration:'none' });
+
+      if (header) {
+        s(header,'display','flex'); s(header,'align-items','center'); s(header,'justify-content','space-between');
+        s(header,'padding','14px 16px'); s(header,'border-bottom','1px solid #f1f5f9');
+      }
+      if (actions) { s(actions,'margin-top','auto'); s(actions,'padding','16px'); s(actions,'border-top','1px solid #f1f5f9'); }
+      if (note) { s(note,'color','#6b7280'); s(note,'background','#f8fafc'); s(note,'padding','12px'); s(note,'border-radius','12px'); s(note,'border','1px dashed #e5e7eb'); }
+      if (body) { s(body,'padding','16px'); s(body,'display','flex'); s(body,'flex-direction','column'); s(body,'gap','12px'); }
+      if (closeBtn) { s(closeBtn,'background','#fff'); s(closeBtn,'border','1px solid #e5e7eb'); s(closeBtn,'border-radius','12px'); s(closeBtn,'padding','8px 12px'); s(closeBtn,'cursor','pointer'); }
+      if (primary) { s(primary,'display','inline-block'); s(primary,'border','none'); s(primary,'border-radius','12px'); s(primary,'padding','10px 14px'); s(primary,'cursor','pointer'); s(primary,'background','#245C8D'); s(primary,'color','#fff'); s(primary,'text-decoration','none'); }
     }
   }
 
-  // Fuerza visibilidad con estilos inline (gana ante cualquier CSS)
   function openDrawer(){
     ensureDrawer();
     const { drawer, backdrop } = getDrawerEls();
     if (!drawer || !backdrop) return;
-    drawer.classList.add('open');    // por compatibilidad
-    backdrop.classList.add('open');  // por compatibilidad
-    drawer.style.transform = 'none';
-    backdrop.style.opacity = '1';
-    backdrop.style.pointerEvents = 'auto';
+
+    const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
+
+    // Forzar visibilidad por si hay CSS agresivo
+    s(drawer,'transform','none');
+    s(backdrop,'opacity','1');
+    s(backdrop,'pointer-events','auto');
     drawer.setAttribute('aria-hidden','false');
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    console.info('[drawer] open');
+
+    // Bloqueo de scroll con !important
+    document.documentElement.style.setProperty('overflow','hidden','important');
+    document.body.style.setProperty('overflow','hidden','important');
+
+    // Por si alguna animación/JS externo lo cambia inmediatamente:
+    requestAnimationFrame(()=>{ s(drawer,'transform','none'); s(backdrop,'opacity','1'); s(backdrop,'pointer-events','auto'); });
+    setTimeout(()=>{ s(drawer,'transform','none'); s(backdrop,'opacity','1'); s(backdrop,'pointer-events','auto'); }, 60);
   }
 
   function closeDrawer(){
     const { drawer, backdrop } = getDrawerEls();
     if (!drawer || !backdrop) return;
-    drawer.classList.remove('open');
-    backdrop.classList.remove('open');
-    drawer.style.transform = 'translateX(100%)';
-    backdrop.style.opacity = '0';
-    backdrop.style.pointerEvents = 'none';
+
+    const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
+
+    s(drawer,'transform','translateX(100%)');
+    s(backdrop,'opacity','0');
+    s(backdrop,'pointer-events','none');
     drawer.setAttribute('aria-hidden','true');
-    document.documentElement.style.overflow = '';
-    document.body.style.overflow = '';
-    console.info('[drawer] close');
+
+    document.documentElement.style.removeProperty('overflow');
+    document.body.style.removeProperty('overflow');
   }
 
   // Delegación global: #btnHamb, .hamb, [data-drawer-open]
@@ -182,7 +187,7 @@
 
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 
-  // Limpia duplicados (si quedaron 2 headers / 2 drawers por inyección previa)
+  // Elimina duplicados si los hubiera
   function removeDuplicates(keepHeader) {
     const headers = Array.from(document.querySelectorAll('header.topbar'));
     headers.forEach(h => { if (h !== keepHeader) h.remove(); });
@@ -220,16 +225,16 @@
 
     if (newHeader) removeDuplicates(newHeader);
 
-    ensureDrawer();   // asegura que exista
+    ensureDrawer();
     markActiveLink();
     applyWhatsAppCTA();
 
-    // re-asegurar tras microtask
+    // Reafirmar al final del ciclo
     setTimeout(ensureDrawer, 0);
   }
 
   function boot() {
-    ensureDrawer(); // como mínimo
+    ensureDrawer(); // como mínimo, que exista
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', injectTopbar);
     } else {
@@ -238,7 +243,7 @@
   }
   boot();
 
-  // Helpers de consola
+  // Helpers para consola
   window.__openDrawer  = openDrawer;
   window.__closeDrawer = closeDrawer;
 })();
