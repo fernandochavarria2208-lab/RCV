@@ -1,10 +1,25 @@
-// js/logout.js
+// frontend/js/logout.js
 (function () {
+  // Devuelve la base de API si es válida para llamar desde el entorno actual; si no, null
+  function getApiBase() {
+    const val = (localStorage.getItem('API_BASE') || '').trim();
+    if (!val) return null; // no hay API configurada => omite logout remoto
+
+    const isLocal = /(^https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?/i.test(val);
+    const onGithubPages = /github\.io$/i.test(location.hostname);
+
+    // Si estamos en GitHub Pages y la API apunta a localhost => omite llamada remota
+    if (onGithubPages && isLocal) return null;
+
+    return val;
+  }
+
   // Intenta notificar al backend (opcional). No bloquea el logout local.
   async function logoutBackend() {
-    const API_BASE = localStorage.getItem('API_BASE') || 'http://localhost:3001/api';
+    const API_BASE = getApiBase();
     const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-    if (!token) return;
+
+    if (!API_BASE || !token) return; // nada que hacer
 
     try {
       await fetch(`${API_BASE}/auth/logout`, {
@@ -22,24 +37,22 @@
   // ===== Función de cierre de sesión =====
   async function logout() {
     try {
-      await logoutBackend(); // opcional, no detiene el flujo si falla
+      await logoutBackend(); // opcional; no detiene el flujo si falla
     } finally {
       // Borra datos de sesión (local)
       localStorage.removeItem('usuarioActual');
       localStorage.removeItem('paginaDestino');
       localStorage.removeItem('token');
       localStorage.removeItem('authToken');
-      localStorage.removeItem('adminMode'); // <-- importante para ocultar enlaces admin
-
+      localStorage.removeItem('adminMode'); // ocultar enlaces admin si los hubiera
       // (Si guardas otros flags de sesión, límpialos aquí)
-      // localStorage.removeItem('otraCosaDeSesion');
     }
 
     // Redirige siempre al login
-    window.location.href = 'login.html';
+    location.replace('login.html');
   }
 
-  // ===== Enganchar evento de logout =====
+  // ===== Enganche por ID (si existe un botón estático con ese id) =====
   function initLogoutButton() {
     const btn = document.getElementById('btnLogout');
     if (btn && !btn.dataset.logoutWired) {
@@ -51,12 +64,22 @@
     }
   }
 
-  // Conecta cuando el DOM esté listo
+  // ===== Delegación global (funciona aunque el botón se inyecte después) =====
+  function wireDelegatedClicks() {
+    document.addEventListener('click', function (e) {
+      const t = e.target && e.target.closest('#btnLogout, [data-logout]');
+      if (t) {
+        e.preventDefault();
+        logout();
+      }
+    }, true); // captura para adelantarnos a otros handlers
+  }
+
   document.addEventListener('DOMContentLoaded', initLogoutButton);
-  // Y vuelve a intentar cuando la ventana cargue todo
   window.addEventListener('load', initLogoutButton);
+  wireDelegatedClicks();
 
-  // Exponer si te sirve llamarlo manualmente: window.rcvLogout()
+  // Exponer para uso manual
   window.rcvLogout = logout;
+  window.__logout = logout;
 })();
-

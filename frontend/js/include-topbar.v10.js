@@ -1,5 +1,14 @@
-// frontend/js/include-topbar.v9.js
+// frontend/js/include-topbar.v10.js
 (function () {
+  // --- util: estado de sesión ---
+  function getSession() {
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken') || '';
+    let user = null;
+    try { user = JSON.parse(localStorage.getItem('usuarioActual') || 'null'); } catch {}
+    return { token, user, loggedIn: !!(token && user) };
+  }
+
+  // --- rutas candidatas para cargar el topbar parcial ---
   function candidatePaths() {
     const here = location.href;
     const raw = [
@@ -11,7 +20,7 @@
     ];
     return raw.map(p => {
       const u = new URL(p, here);
-      u.searchParams.set('v', '9');
+      u.searchParams.set('v', '10'); // cache-bust del parcial
       return u.href;
     });
   }
@@ -22,9 +31,7 @@
         const res = await fetch(u, { cache: 'no-cache' });
         if (res.ok) return await res.text();
         console.warn('[topbar] intento fallido:', u, res.status);
-      } catch (e) {
-        console.warn('[topbar] error al intentar:', u, e);
-      }
+      } catch (e) { console.warn('[topbar] error al intentar:', u, e); }
     }
     throw new Error('No se encontró partials/topbar.html en rutas candidatas.');
   }
@@ -44,9 +51,7 @@
       } else if (path.endsWith('/index.html') || /\/$/.test(path)) {
         document.querySelector('a[data-page="inicio"]')?.classList.add('active');
       }
-    } catch (e) {
-      console.warn('[topbar] no se pudo marcar el link activo:', e);
-    }
+    } catch (e) { console.warn('[topbar] no se pudo marcar el link activo:', e); }
   }
 
   function applyWhatsAppCTA() {
@@ -57,12 +62,16 @@
     }
   }
 
-  // ========= Drawer (forzando estilos para ganar a cualquier CSS) =========
+  // ===== Drawer =====
   function getDrawerEls() {
     return {
       drawer:   document.getElementById('drawer'),
       backdrop: document.getElementById('drawerBackdrop')
     };
+  }
+
+  function forceStyle(el, prop, val) {
+    if (el) el.style.setProperty(prop, val, 'important');
   }
 
   function ensureDrawer() {
@@ -78,85 +87,95 @@
   <div class="drawer-body">
     <div class="drawer-note"><strong>Espacio único para empleados</strong><br/>Acceso a panel, kardex, órdenes, facturación y más.</div>
     <p class="muted" style="margin:0">Si eres parte del equipo, inicia sesión para continuar.</p>
+    <div id="drawerUserInfo" class="muted" style="margin-top:6px"></div>
   </div>
-  <div class="drawer-actions"><a class="btn btn-primary" href="login.html">Iniciar sesión</a></div>
+  <div class="drawer-actions" id="drawerActions"></div>
 </aside>`);
       ({ drawer, backdrop } = getDrawerEls());
     }
 
+    // mover al final del body para z-index natural máximo
     try { document.body.appendChild(backdrop); } catch {}
     try { document.body.appendChild(drawer); } catch {}
 
-    const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
-
+    // estilos base (forzados)
     if (backdrop) {
-      s(backdrop,'position','fixed');
-      s(backdrop,'inset','0');
-      s(backdrop,'background','rgba(0,0,0,.35)');
-      s(backdrop,'opacity','0');
-      s(backdrop,'pointer-events','none');
-      s(backdrop,'transition','opacity .2s ease');
-      s(backdrop,'z-index','2147483646');
+      forceStyle(backdrop,'position','fixed');
+      forceStyle(backdrop,'inset','0');
+      forceStyle(backdrop,'background','rgba(0,0,0,.35)');
+      forceStyle(backdrop,'opacity','0');
+      forceStyle(backdrop,'pointer-events','none');
+      forceStyle(backdrop,'transition','opacity .2s ease');
+      forceStyle(backdrop,'z-index','2147483646');
     }
     if (drawer) {
-      s(drawer,'position','fixed');
-      s(drawer,'top','0'); s(drawer,'right','0');
-      s(drawer,'height','100%'); s(drawer,'width','min(92vw,360px)');
-      s(drawer,'background','#fff');
-      s(drawer,'box-shadow','-8px 0 24px rgba(15,23,42,.18)');
-      s(drawer,'transform','translateX(100%)');
-      s(drawer,'transition','transform .25s ease');
-      s(drawer,'z-index','2147483647');
-      s(drawer,'display','flex'); s(drawer,'flex-direction','column');
+      forceStyle(drawer,'position','fixed');
+      forceStyle(drawer,'top','0'); forceStyle(drawer,'right','0');
+      forceStyle(drawer,'height','100%'); forceStyle(drawer,'width','min(92vw,360px)');
+      forceStyle(drawer,'background','#fff');
+      forceStyle(drawer,'box-shadow','-8px 0 24px rgba(15,23,42,.18)');
+      forceStyle(drawer,'transform','translateX(100%)');
+      forceStyle(drawer,'transition','transform .25s ease');
+      forceStyle(drawer,'z-index','2147483647');
+      forceStyle(drawer,'display','flex'); forceStyle(drawer,'flex-direction','column');
 
-      const header = drawer.querySelector('.drawer-header');
+      const header  = drawer.querySelector('.drawer-header');
       const actions = drawer.querySelector('.drawer-actions');
-      const note = drawer.querySelector('.drawer-note');
-      const body = drawer.querySelector('.drawer-body');
-      const closeBtn = drawer.querySelector('#btnCloseDrawer');
-      const primary = drawer.querySelector('.btn.btn-primary');
+      const note    = drawer.querySelector('.drawer-note');
+      const body    = drawer.querySelector('.drawer-body');
+      const closeBtn= drawer.querySelector('#btnCloseDrawer');
 
-      if (header) { s(header,'display','flex'); s(header,'align-items','center'); s(header,'justify-content','space-between'); s(header,'padding','14px 16px'); s(header,'border-bottom','1px solid #f1f5f9'); }
-      if (actions){ s(actions,'margin-top','auto'); s(actions,'padding','16px'); s(actions,'border-top','1px solid #f1f5f9'); }
-      if (note)   { s(note,'color','#6b7280'); s(note,'background','#f8fafc'); s(note,'padding','12px'); s(note,'border-radius','12px'); s(note,'border','1px dashed #e5e7eb'); }
-      if (body)   { s(body,'padding','16px'); s(body,'display','flex'); s(body,'flex-direction','column'); s(body,'gap','12px'); }
-      if (closeBtn){ s(closeBtn,'background','#fff'); s(closeBtn,'border','1px solid #e5e7eb'); s(closeBtn,'border-radius','12px'); s(closeBtn,'padding','8px 12px'); s(closeBtn,'cursor','pointer'); }
-      if (primary){ s(primary,'display','inline-block'); s(primary,'border','none'); s(primary,'border-radius','12px'); s(primary,'padding','10px 14px'); s(primary,'cursor','pointer'); s(primary,'background','#245C8D'); s(primary,'color','#fff'); s(primary,'text-decoration','none'); }
+      if (header) { forceStyle(header,'display','flex'); forceStyle(header,'align-items','center'); forceStyle(header,'justify-content','space-between'); forceStyle(header,'padding','14px 16px'); forceStyle(header,'border-bottom','1px solid #f1f5f9'); }
+      if (actions){ forceStyle(actions,'margin-top','auto'); forceStyle(actions,'padding','16px'); forceStyle(actions,'border-top','1px solid #f1f5f9'); }
+      if (note)   { forceStyle(note,'color','#6b7280'); forceStyle(note,'background','#f8fafc'); forceStyle(note,'padding','12px'); forceStyle(note,'border-radius','12px'); forceStyle(note,'border','1px dashed #e5e7eb'); }
+      if (body)   { forceStyle(body,'padding','16px'); forceStyle(body,'display','flex'); forceStyle(body,'flex-direction','column'); forceStyle(body,'gap','12px'); }
+      if (closeBtn){ forceStyle(closeBtn,'background','#fff'); forceStyle(closeBtn,'border','1px solid #e5e7eb'); forceStyle(closeBtn,'border-radius','12px'); forceStyle(closeBtn,'padding','8px 12px'); forceStyle(closeBtn,'cursor','pointer'); }
+    }
+  }
+
+  // botón dinámico: login / logout
+  function renderAuthAction() {
+    ensureDrawer();
+    const { user, loggedIn } = getSession();
+    const actions = document.getElementById('drawerActions');
+    const info    = document.getElementById('drawerUserInfo');
+    if (!actions) return;
+
+    if (loggedIn) {
+      const nombre  = user?.nombre || user?.usuario || 'Usuario';
+      actions.innerHTML = `<a href="#" class="btn btn-primary" data-logout style="display:inline-block;border:none;border-radius:12px;padding:10px 14px;cursor:pointer;background:#245C8D;color:#fff;text-decoration:none">Cerrar sesión</a>`;
+      if (info) info.textContent = `Sesión activa: ${nombre}`;
+    } else {
+      actions.innerHTML = `<a class="btn btn-primary" href="login.html" style="display:inline-block;border:none;border-radius:12px;padding:10px 14px;cursor:pointer;background:#245C8D;color:#fff;text-decoration:none">Iniciar sesión</a>`;
+      if (info) info.textContent = '';
     }
   }
 
   function openDrawer(){
     ensureDrawer();
+    renderAuthAction(); // actualizar justo antes de abrir (por si cambió la sesión)
     const { drawer, backdrop } = getDrawerEls();
     if (!drawer || !backdrop) return;
-    const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
-
-    s(drawer,'transform','none');
-    s(backdrop,'opacity','1');
-    s(backdrop,'pointer-events','auto');
+    forceStyle(drawer,'transform','none');
+    forceStyle(backdrop,'opacity','1');
+    forceStyle(backdrop,'pointer-events','auto');
     drawer.setAttribute('aria-hidden','false');
-
     document.documentElement.style.setProperty('overflow','hidden','important');
     document.body.style.setProperty('overflow','hidden','important');
-
-    requestAnimationFrame(()=>{ s(drawer,'transform','none'); s(backdrop,'opacity','1'); s(backdrop,'pointer-events','auto'); });
-    setTimeout(()=>{ s(drawer,'transform','none'); s(backdrop,'opacity','1'); s(backdrop,'pointer-events','auto'); }, 60);
   }
 
   function closeDrawer(){
     const { drawer, backdrop } = getDrawerEls();
     if (!drawer || !backdrop) return;
-    const s = (el, prop, val) => el && el.style.setProperty(prop, val, 'important');
-
-    s(drawer,'transform','translateX(100%)');
-    s(backdrop,'opacity','0');
-    s(backdrop,'pointer-events','none');
+    forceStyle(drawer,'transform','translateX(100%)');
+    forceStyle(backdrop,'opacity','0');
+    forceStyle(backdrop,'pointer-events','none');
     drawer.setAttribute('aria-hidden','true');
-
     document.documentElement.style.removeProperty('overflow');
     document.body.style.removeProperty('overflow');
   }
 
+  // eventos globales
   document.addEventListener('click', (e) => {
     const t = e.target;
     if (t.closest('#btnHamb') || t.closest('.hamb') || t.closest('[data-drawer-open]')) {
@@ -169,10 +188,17 @@
 
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 
+  // si la sesión cambia en otra pestaña, re-render
+  window.addEventListener('storage', (e) => {
+    if (['token','authToken','usuarioActual'].includes(e.key)) {
+      renderAuthAction();
+    }
+  });
+
+  // limpieza duplicados, inyección del topbar
   function removeDuplicates(keepHeader) {
     const headers = Array.from(document.querySelectorAll('header.topbar'));
     headers.forEach(h => { if (h !== keepHeader) h.remove(); });
-
     const drawers = Array.from(document.querySelectorAll('#drawer'));
     const backs   = Array.from(document.querySelectorAll('#drawerBackdrop'));
     drawers.slice(1).forEach(n => n.remove());
@@ -193,7 +219,7 @@
     try { html = await fetchFirstOk(candidatePaths()); }
     catch (e) {
       console.error('[topbar] No se pudo cargar parcial. Continúo sólo con drawer.', e);
-      ensureDrawer();
+      ensureDrawer(); renderAuthAction();
       return;
     }
 
@@ -202,18 +228,19 @@
     if (created || anchor.matches('header.topbar') || anchor.id === 'topbarSlot') {
       try { anchor.remove(); } catch {}
     }
-
     if (newHeader) removeDuplicates(newHeader);
 
     ensureDrawer();
+    renderAuthAction();
     markActiveLink();
     applyWhatsAppCTA();
 
-    setTimeout(ensureDrawer, 0);
+    setTimeout(() => { ensureDrawer(); renderAuthAction(); }, 0);
   }
 
   function boot() {
     ensureDrawer();
+    renderAuthAction();
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', injectTopbar);
     } else {
@@ -222,6 +249,7 @@
   }
   boot();
 
+  // helpers consola
   window.__openDrawer  = openDrawer;
   window.__closeDrawer = closeDrawer;
 })();
