@@ -12,7 +12,7 @@
     ];
     return raw.map(p => {
       const u = new URL(p, here);
-      u.searchParams.set('v', '4'); // simple cache-bust
+      u.searchParams.set('v', '5'); // cache-bust
       return u.href;
     });
   }
@@ -74,7 +74,6 @@
   }
 
   function ensureDrawer() {
-    // Si ya existe, no hace nada
     let { drawer, backdrop } = getDrawerEls();
     if (drawer && backdrop) return;
 
@@ -121,6 +120,7 @@
     drawer.setAttribute('aria-hidden','false');
     document.documentElement.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
+    console.info('[drawer] open');
   }
   function closeDrawer(){
     const { drawer, backdrop } = getDrawerEls();
@@ -130,17 +130,18 @@
     drawer.setAttribute('aria-hidden','true');
     document.documentElement.style.overflow = '';
     document.body.style.overflow = '';
+    console.info('[drawer] close');
   }
 
-  // --- Delegación global (soporta #btnHamb y también .hamb “viejo”) ---
+  // --- Delegación global (soporta #btnHamb, cualquier .hamb y data-drawer-open) ---
   document.addEventListener('click', (e) => {
     const t = e.target;
-    if (t.closest('#btnHamb') || t.closest('button.hamb')) {
+    if (t.closest('#btnHamb') || t.closest('.hamb') || t.closest('[data-drawer-open]')) {
       e.preventDefault();
-      ensureDrawer();   // por si aún no existe (fallback)
+      ensureDrawer();   // garantiza que exista
       openDrawer();
     }
-    if (t.closest('#btnCloseDrawer') || t.closest('#drawerBackdrop')) {
+    if (t.closest('#btnCloseDrawer') || t.closest('#drawerBackdrop') || t.closest('[data-drawer-close]')) {
       e.preventDefault();
       closeDrawer();
     }
@@ -150,6 +151,10 @@
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeDrawer();
   });
+
+  // Exponer utilidades en consola por si quieres probar manualmente
+  window.__openDrawer = openDrawer;
+  window.__closeDrawer = closeDrawer;
 
   // --- Limpia duplicados (si quedaron 2 headers / 2 drawers por inyección previa) ---
   function removeDuplicates(keepHeader) {
@@ -196,16 +201,26 @@
 
     if (newHeader) removeDuplicates(newHeader);
 
-    // Asegura que haya drawer (si el parcial no lo incluyera por alguna razón)
+    // Asegura que haya drawer (por si el parcial no lo trae)
     ensureDrawer();
 
     markActiveLink();
     applyWhatsAppCTA();
+
+    // Re-asegurar tras microtask (por si el DOM cambia justo después)
+    setTimeout(() => {
+      ensureDrawer();
+    }, 0);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectTopbar);
-  } else {
-    injectTopbar();
+  // Garantiza que el drawer exista incluso si falla la carga del parcial
+  function boot() {
+    ensureDrawer();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', injectTopbar);
+    } else {
+      injectTopbar();
+    }
   }
+  boot();
 })();
