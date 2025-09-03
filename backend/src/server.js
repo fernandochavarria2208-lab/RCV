@@ -1,4 +1,6 @@
-// Backend/src/server.js (CORS inteligente, SIN bypass de auth)
+// backend/src/server.js  — entrypoint único para Cloud Run
+"use strict";
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -43,6 +45,9 @@ const app = express();
 const PORT = process.env.PORT || 8080;               // ⬅️ Cloud Run usa 8080
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// 🔐 Cloud Run detrás de proxy (X-Forwarded-For/Proto, cookies "secure")
+app.set('trust proxy', 1);
+
 // ❌ (ELIMINADO) CORS global abierto que anulaba la lista de orígenes:
 // app.use(cors({ origin: true, credentials: true }));
 
@@ -58,7 +63,7 @@ const corsOptions = {
     if (!origin) return cb(null, true);
 
     if (origin === 'null') {
-      // Origen "file://" en pruebas locales; si no lo usas, puedes quitarlo
+      // Origen "file://" en pruebas locales; elimínalo si no lo usas
       return cb(null, true);
     }
 
@@ -87,15 +92,17 @@ const corsOptions = {
 
 // Aplica CORS solo bajo /api (incluye preflight)
 app.use('/api', cors(corsOptions));
+app.options('/api', cors(corsOptions));
 app.options('/api/*', cors(corsOptions));
 
-// Body parser
+// Body parsers
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// Healthcheck
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, ts: new Date().toISOString() });
-});
+// Healthchecks básicos
+app.get('/_alive', (_req, res) => res.json({ ok: true, env: NODE_ENV, ts: new Date().toISOString() }));
+app.get('/_warmup', (_req, res) => res.json({ ok: true, warmed: true, ts: new Date().toISOString() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
 // ====== MONTAJE DE RUTAS ======
 app.use('/api/auth',        pickRouter('authRoutes', authRoutes));
@@ -104,11 +111,11 @@ app.use('/api/bitacora',    pickRouter('bitacoraRoutes', bitacoraRoutes));
 app.use('/api/clientes',    pickRouter('clientesRoutes', clientesRoutes));
 app.use('/api/vehiculos',   pickRouter('vehiculosRoutes', vehiculosRoutes));
 app.use('/api/ordenes',     pickRouter('ordenesRoutes', ordenesRoutes));
-app.use('/api',             cotizacionesRoutes);
+app.use('/api',             cotizacionesRoutes);      // define su propio prefijo interno
 app.use('/api/kardex',      pickRouter('kardexRoutes', kardexRoutes));
 app.use('/api/productos',   pickRouter('productosRoutes', productosRoutes));
-app.use('/api/items',       itemsRoutes);         // base dedicada
-app.use('/api/catalogo',    catalogoRoutes);      // base dedicada
+app.use('/api/items',       itemsRoutes);             // base dedicada
+app.use('/api/catalogo',    catalogoRoutes);          // base dedicada
 app.use('/api/gastos',      gastosRoutes);
 app.use('/api/reportes',    reportesRoutes);
 app.use('/api',             dashboardRoutes);
@@ -151,11 +158,29 @@ if (FRONT_DIR) {
 // /public estático (opcional)
 app.use('/static', express.static(path.join(__dirname, '..', 'public')));
 
+// 404 JSON solo para /api (no afecta a /frontend o /static)
+app.use('/api', (req, res, _next) => {
+  res.status(404).json({ ok: false, error: 'Not Found', path: req.originalUrl });
+});
+
+// Manejador de errores (incluye errores de CORS)
+app.use((err, req, res, _next) => {
+  const origin = req.get('Origin') || null;
+  if (err && typeof err.message === 'string' && err.message.startsWith('Not allowed by CORS')) {
+    return res.status(403).json({ ok: false, error: 'CORS blocked', origin });
+  }
+  console.error('💥 Error no controlado:', err);
+  res.status(500).json({ ok: false, error: 'Internal Server Error' });
+});
+
 // Arranque DB y server
 initDB();
 app.set('db', getDB());
 
 app.listen(PORT, '0.0.0.0', () => {
+  console.log('>>> RUNNING APP FILE:', __filename);
+  console.log('>>> CWD:', process.cwd());
   console.log(`✅ API Taller RCV escuchando en http://0.0.0.0:${PORT}`);
+  console.log(`🌱 NODE_ENV=${NODE_ENV} | AllowedOrigins=${JSON.stringify(allowedOrigins)}`);
   if (FRONT_DIR) console.log(`🌐 Frontend en http://0.0.0.0:${PORT}/frontend/`);
 });
