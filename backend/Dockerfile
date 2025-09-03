@@ -9,8 +9,10 @@ COPY . .
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+# (opcional) ayuda para stacktraces
+ENV NODE_OPTIONS=--enable-source-maps
 COPY --from=build /app /app
 
 # Cloud Run inyecta PORT; Express debe escuchar en 0.0.0.0:PORT
 EXPOSE 8080
-CMD ["node","server.js"]
+CMD ["node","backend/src/server.js"]
