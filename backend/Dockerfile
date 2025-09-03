@@ -15,4 +15,4 @@ COPY --from=build /app /app
 
 # Cloud Run inyecta PORT; Express debe escuchar en 0.0.0.0:PORT
 EXPOSE 8080
-CMD ["node","backend/src/server.js"]
+CMD ["node","src/server.js"]
