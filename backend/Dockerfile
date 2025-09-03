@@ -1,12 +1,12 @@
 # ---- build (instala deps) ----
-FROM node:20-alpine AS build
+FROM node:20 AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 COPY . .
 
-# ---- runtime (ligero) ----
-FROM node:20-alpine
+# ---- runtime (ligero y estable, sin Alpine) ----
+FROM node:20
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--enable-source-maps
