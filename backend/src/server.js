@@ -11,15 +11,14 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
-/* ---------------- CORS ---------------- */
+/* -------- CORS -------- */
 const allowedOrigins = [
   "https://fernandochavarria2208-lab.github.io",
-  // agrega aquí otros dominios productivos si los usas
 ];
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true);          // curl/Postman
-    if (origin === "null") return cb(null, true); // file:// en pruebas
+    if (!origin) return cb(null, true);            // curl/Postman
+    if (origin === "null") return cb(null, true);  // file://
 
     if (NODE_ENV !== "production") {
       const isLocal = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3})(:\d+)?$/i.test(origin);
@@ -40,19 +39,19 @@ const corsOptions = {
 app.use("/api", cors(corsOptions));
 app.options("/api/*", cors(corsOptions));
 
-/* -------------- Body parser ----------- */
+/* -------- Body parser -------- */
 app.use(express.json({ limit: "1mb" }));
 
-/* -------------- DB init --------------- */
-initDB();                     // tu initDB no es promesa
+/* -------- DB -------- */
+initDB();             // tu initDB no devuelve promesa
 app.set("db", getDB());
 
-/* -------------- Health ---------------- */
+/* -------- Health -------- */
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
-/* --- Helpers: cargar routers sin tumbar el server si faltan --- */
+/* -------- Helpers para montar rutas sin romper -------- */
 function tryRequire(modPath) {
   try { return require(modPath); }
   catch (e) {
@@ -81,7 +80,7 @@ function mount(base, name, modPath) {
   console.log(`✅ Montado ${name} en ${base}`);
 }
 
-/* -------------- Montaje de rutas -------------- */
+/* -------- Montaje de rutas -------- */
 mount("/api/auth",        "authRoutes",        "./routes/authRoutes");
 mount("/api/usuarios",    "usuariosRoutes",    "./routes/usuariosRoutes");
 mount("/api/bitacora",    "bitacoraRoutes",    "./routes/bitacoraRoutes");
@@ -100,7 +99,7 @@ mount("/api",             "tiemposRoutes",     "./routes/tiemposRoutes");
 mount("/api",             "adminLocalRoutes",  "./routes/adminLocalRoutes");
 mount("/api",             "facturacionRoutes", "./routes/facturacionRoutes");
 
-/* -------------- Estáticos opcionales -------------- */
+/* -------- Estáticos opcionales -------- */
 const uploadsDir = path.join(__dirname, "..", "public", "uploads");
 if (fs.existsSync(uploadsDir)) {
   app.use("/uploads", express.static(uploadsDir));
@@ -118,7 +117,7 @@ if (FRONT_DIR) {
   console.log("🗂️  FRONTEND ->", FRONT_DIR);
 }
 
-/* -------------- Arranque -------------- */
+/* -------- Arranque -------- */
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ API Taller RCV escuchando en http://0.0.0.0:${PORT}`);
 });
