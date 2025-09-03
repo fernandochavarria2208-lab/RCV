@@ -14,11 +14,13 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 /* ---------------- CORS ---------------- */
 const allowedOrigins = [
   "https://fernandochavarria2208-lab.github.io",
+  // agrega aquí otros dominios productivos si los usas
 ];
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    if (origin === "null") return cb(null, true);
+    if (!origin) return cb(null, true);          // curl/Postman
+    if (origin === "null") return cb(null, true); // file:// en pruebas
+
     if (NODE_ENV !== "production") {
       const isLocal = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3})(:\d+)?$/i.test(origin);
       if (isLocal) return cb(null, true);
@@ -42,7 +44,7 @@ app.options("/api/*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
 /* -------------- DB init --------------- */
-initDB().catch(err => console.error("❌ Error DB:", err?.message || err));
+initDB();                     // tu initDB no es promesa
 app.set("db", getDB());
 
 /* -------------- Health ---------------- */
@@ -50,7 +52,7 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
-/* -------------- Helpers para montar routers sin romper -------------- */
+/* --- Helpers: cargar routers sin tumbar el server si faltan --- */
 function tryRequire(modPath) {
   try { return require(modPath); }
   catch (e) {
