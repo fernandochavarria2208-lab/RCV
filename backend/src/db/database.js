@@ -3,7 +3,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-// Usa /tmp (Cloud Run) si te pasan DB_PATH
+// Usa DB_PATH si está definido (Cloud Run: persistente solo en /tmp)
 const dbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
   : path.resolve(__dirname, 'taller_rcv.db');
