@@ -5,14 +5,14 @@ const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 const bcrypt = require("bcryptjs");
 
-// Usa DB_PATH si está definido (en Cloud Run suele ser /tmp/rcv.sqlite)
+// Usa DB_PATH si está definido (en Cloud Run / contenedor suele ser /tmp/rcv.sqlite)
 const dbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
   : path.resolve(__dirname, "taller_rcv.db");
 
 let db;
 
-/* ----------------- helpers promisificados ----------------- */
+/* -------------------- Helpers Promesa -------------------- */
 function run(db, sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -23,52 +23,45 @@ function run(db, sql, params = []) {
 }
 function get(db, sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
+    db.get(sql, params, (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
   });
 }
 function all(db, sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+    db.all(sql, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
   });
 }
 
-/* ----------------- migraciones utilitarias ----------------- */
-async function columnExists(table, col) {
+/* -------------------- Migraciones utilitarias -------------------- */
+async function hasColumn(table, column) {
   const rows = await all(db, `PRAGMA table_info(${table})`);
-  return rows.some(r => r.name === col);
+  return rows.some((r) => r.name === column);
 }
 
-async function ensureUsuariosTable() {
-  // Crea la tabla si no existe (con el esquema completo actual)
+/* -------------------- Esquema / Tablas -------------------- */
+async function createTables() {
   await run(
     db,
     `CREATE TABLE IF NOT EXISTS usuarios (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      usuario        TEXT    UNIQUE NOT NULL,
-      nombre         TEXT,
-      email          TEXT,                           -- opcional; se usa para creación/reset
-      rol            TEXT    DEFAULT 'usuario',
-      estado         TEXT    DEFAULT 'activo',
-      forzarCambio   INTEGER DEFAULT 0,
-      permisos       TEXT    DEFAULT '[]',
-      permisos_extras TEXT   DEFAULT '[]',
-      password       TEXT,                           -- hash bcrypt
-      ultimoAcceso   TEXT
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario       TEXT UNIQUE,
+      nombre        TEXT,
+      email         TEXT,                           -- ⬅️ campo email soportado
+      rol           TEXT,
+      estado        TEXT DEFAULT 'activo',
+      forzarCambio  INTEGER DEFAULT 0,
+      permisos      TEXT DEFAULT '[]',
+      password      TEXT,
+      ultimoAcceso  TEXT
     )`
   );
 
-  // Migraciones de columnas (por si la tabla ya existía)
-  if (!(await columnExists("usuarios", "email"))) {
-    await run(db, `ALTER TABLE usuarios ADD COLUMN email TEXT`);
-  }
-  if (!(await columnExists("usuarios", "permisos_extras"))) {
-    await run(db, `ALTER TABLE usuarios ADD COLUMN permisos_extras TEXT DEFAULT '[]'`);
-  }
-
-  // Índice único sobre email (permite múltiples NULL, SQLite los considera distintos)
-  await run(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios(email)`);
-
-  // Campos frecuentes en tu app (bitácora y otros)
   await run(
     db,
     `CREATE TABLE IF NOT EXISTS bitacora (
@@ -80,9 +73,24 @@ async function ensureUsuariosTable() {
       detalles TEXT
     )`
   );
-}
 
-async function ensureCatalogoBasico() {
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS clientes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      identificacion TEXT,
+      telefono TEXT,
+      email TEXT,
+      direccion TEXT,
+      ciudad TEXT,
+      notas TEXT,
+      estado TEXT DEFAULT 'activo',
+      fechaRegistro TEXT,
+      actualizado TEXT
+    )`
+  );
+
   // Vocabularios
   await run(
     db,
@@ -91,6 +99,7 @@ async function ensureCatalogoBasico() {
       nombre TEXT NOT NULL UNIQUE
     )`
   );
+
   await run(
     db,
     `CREATE TABLE IF NOT EXISTS areas_vehiculo (
@@ -130,34 +139,20 @@ async function ensureCatalogoBasico() {
     )`
   );
 
-  // Semillas
-  await run(
-    db,
-    `INSERT OR IGNORE INTO secciones_servicio (nombre) VALUES
-     ('Motor'), ('Transmisión'), ('Frenos'), ('Eléctrico'), ('Aire acondicionado'), ('Enfriamiento')`
-  );
-  await run(
-    db,
-    `INSERT OR IGNORE INTO areas_vehiculo (nombre) VALUES
-     ('Suspensión'), ('Dirección'), ('Carrocería'), ('Escape'), ('Frenos'), ('Ruedas')`
-  );
-}
-
-/* --------- SAR (CAI/documentos) tablas que ya usas --------- */
-async function ensureSAR() {
+  // SAR: CAI / Documentos
   await run(
     db,
     `CREATE TABLE IF NOT EXISTS cai_autorizaciones (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       cai              TEXT    NOT NULL,
-      documento_tipo   TEXT    NOT NULL,
-      establecimiento  TEXT    NOT NULL,
-      punto_emision    TEXT    NOT NULL,
-      tipo_doc         TEXT    NOT NULL,
+      documento_tipo   TEXT    NOT NULL,            -- FACTURA, NC, ND, etc.
+      establecimiento  TEXT    NOT NULL,            -- 3 dígitos
+      punto_emision    TEXT    NOT NULL,            -- 3 dígitos
+      tipo_doc         TEXT    NOT NULL,            -- 2 dígitos (01=Factura, 04=NC, 05=ND)
       rango_inicio     INTEGER NOT NULL,
       rango_fin        INTEGER NOT NULL,
-      fecha_limite     TEXT    NOT NULL,
-      estado           TEXT    NOT NULL DEFAULT 'vigente',
+      fecha_limite     TEXT    NOT NULL,            -- YYYY-MM-DD
+      estado           TEXT    NOT NULL DEFAULT 'vigente', -- vigente|vencido|agotado
       resolucion       TEXT,
       UNIQUE(cai, documento_tipo, establecimiento, punto_emision, tipo_doc)
     )`
@@ -168,10 +163,10 @@ async function ensureSAR() {
     db,
     `CREATE TABLE IF NOT EXISTS documentos (
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-      tipo               TEXT    NOT NULL,
+      tipo               TEXT    NOT NULL,          -- FACTURA, NC, ND, etc.
       cai_id             INTEGER NOT NULL,
       secuencia          INTEGER NOT NULL,
-      correlativo        TEXT    NOT NULL,
+      correlativo        TEXT    NOT NULL,          -- EEE-PPP-TT-SSSSSSSS
       fecha_emision      TEXT    NOT NULL,
       lugar_emision      TEXT,
       moneda             TEXT    NOT NULL DEFAULT 'HNL',
@@ -207,7 +202,7 @@ async function ensureSAR() {
       cantidad         REAL    NOT NULL,
       precio_unitario  REAL    NOT NULL,
       descuento        REAL    NOT NULL DEFAULT 0,
-      tarifa_isv       INTEGER NOT NULL,
+      tarifa_isv       INTEGER NOT NULL,            -- 0|15|18
       base_imponible   REAL    NOT NULL DEFAULT 0,
       impuesto         REAL    NOT NULL DEFAULT 0,
       total_linea      REAL    NOT NULL DEFAULT 0,
@@ -215,85 +210,122 @@ async function ensureSAR() {
     )`
   );
   await run(db, `CREATE INDEX IF NOT EXISTS idx_items_doc ON documento_items(documento_id)`);
+}
 
+/* -------------------- Semillas catalogo -------------------- */
+async function seedVocabularios() {
   await run(
     db,
-    `CREATE TABLE IF NOT EXISTS documentos_referencias (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
-      doc_id           INTEGER NOT NULL,
-      ref_tipo         TEXT    NOT NULL,
-      ref_cai          TEXT    NOT NULL,
-      ref_correlativo  TEXT    NOT NULL,
-      ref_fecha        TEXT    NOT NULL,
-      motivo           TEXT,
-      FOREIGN KEY (doc_id) REFERENCES documentos(id) ON DELETE CASCADE
-    )`
+    `INSERT OR IGNORE INTO secciones_servicio (nombre) VALUES
+      ('Motor'), ('Transmisión'), ('Frenos'), ('Eléctrico'), ('Aire acondicionado'), ('Enfriamiento')`
+  );
+  await run(
+    db,
+    `INSERT OR IGNORE INTO areas_vehiculo (nombre) VALUES
+      ('Suspensión'), ('Dirección'), ('Carrocería'), ('Escape'), ('Frenos'), ('Ruedas')`
   );
 }
 
-/* ----------------- siembra y reset admin ----------------- */
-async function ensureAdmin() {
-  const ADMIN_USER  = process.env.ADMIN_USER  || "admin";
-  const ADMIN_PASS  = process.env.ADMIN_PASS  || "admin123";
-  const ADMIN_EMAIL = process.env.ADMIN_EMAIL || null;
-  const FORCE_RESET = String(process.env.FORCE_ADMIN_RESET || "0") === "1";
+/* -------------------- Migraciones -------------------- */
+async function migrate() {
+  // Asegura que 'email' exista en usuarios aunque la tabla ya viniera de antes.
+  const hasEmail = await hasColumn("usuarios", "email");
+  if (!hasEmail) {
+    await run(db, `ALTER TABLE usuarios ADD COLUMN email TEXT`);
+    console.log("🛠️  Migración: columna usuarios.email añadida");
+  }
+}
 
-  const row = await get(db, `SELECT id FROM usuarios WHERE lower(usuario)=lower(?)`, [ADMIN_USER]);
+/* -------------------- Admin por defecto / Reset -------------------- */
+async function ensureAdmin() {
+  const username = (process.env.ADMIN_USER || "admin").trim();
+  const password = (process.env.ADMIN_PASS || "admin123").trim();
+  const emailEnv = (process.env.ADMIN_EMAIL || "").trim(); // opcional
+  const force = String(process.env.FORCE_ADMIN_RESET || "0") === "1";
+
+  const row = await get(
+    db,
+    `SELECT id, usuario, email FROM usuarios WHERE lower(usuario) = lower(?)`,
+    [username]
+  );
+
+  const hash = await bcrypt.hash(password, 10);
 
   if (!row) {
-    const hash = bcrypt.hashSync(ADMIN_PASS, 10);
     await run(
       db,
-      `INSERT INTO usuarios (usuario, nombre, email, rol, estado, forzarCambio, permisos, permisos_extras, password, ultimoAcceso)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usuarios
+        (usuario, nombre, email, rol, estado, forzarCambio, permisos, password, ultimoAcceso)
+       VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        ADMIN_USER,
+        username,
         "Administrador",
-        ADMIN_EMAIL,
+        emailEnv || null,
         "administrador",
         "activo",
         0,
         JSON.stringify(["usuarios.admin", "bitacora.view"]),
-        JSON.stringify([]),
         hash,
         null,
       ]
     );
-    console.log(`✅ Usuario admin creado (${ADMIN_USER})`);
-  } else if (FORCE_RESET) {
-    const hash = bcrypt.hashSync(ADMIN_PASS, 10);
-    await run(
-      db,
-      `UPDATE usuarios
-         SET password = ?, email = COALESCE(?, email), forzarCambio = 0, estado = 'activo'
-       WHERE id = ?`,
-      [hash, ADMIN_EMAIL, row.id]
+    console.log(
+      `✅ Usuario ${username} creado${emailEnv ? " con email " + emailEnv : ""}`
     );
-    console.log(`🔐 Password de ${ADMIN_USER} reseteado (FORCE_ADMIN_RESET=1)`);
+    return;
+  }
+
+  if (force) {
+    if (emailEnv) {
+      await run(
+        db,
+        `UPDATE usuarios
+           SET password = ?, forzarCambio = 0, estado = 'activo', email = ?
+         WHERE id = ?`,
+        [hash, emailEnv, row.id]
+      );
+      console.log(
+        `🔐 Usuario ${username} reseteado y email actualizado a ${emailEnv}`
+      );
+    } else {
+      await run(
+        db,
+        `UPDATE usuarios
+           SET password = ?, forzarCambio = 0, estado = 'activo'
+         WHERE id = ?`,
+        [hash, row.id]
+      );
+      console.log(`🔐 Usuario ${username} reseteado (email sin cambios)`);
+    }
   } else {
-    // no-op
+    console.log(`ℹ️ Usuario ${username} ya existe (sin reset).`);
   }
 }
 
-/* ----------------- init/export ----------------- */
-async function createOrMigrate() {
-  await run(db, `PRAGMA foreign_keys = ON;`);
-  await ensureUsuariosTable();
-  await ensureCatalogoBasico();
-  await ensureSAR();
-  await ensureAdmin();
-}
+/* -------------------- init / get -------------------- */
+async function initDB() {
+  return new Promise((resolve) => {
+    db = new sqlite3.Database(dbPath, async (err) => {
+      if (err) {
+        console.error("❌ Error al conectar DB:", err.message);
+        // Igual resolvemos para no bloquear arranque; pero sin DB fallará al usar getDB()
+        return resolve();
+      }
+      console.log("✅ Conectado a SQLite:", dbPath);
 
-function initDB() {
-  db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-      console.error("❌ Error al conectar DB:", err.message);
-    } else {
-      console.log("✅ SQLite conectado:", dbPath);
-      createOrMigrate()
-        .then(() => console.log("🛠️  Migraciones OK"))
-        .catch((e) => console.error("❌ Migraciones fallaron:", e));
-    }
+      try {
+        await run(db, `PRAGMA foreign_keys = ON;`);
+        await createTables();
+        await migrate();
+        await seedVocabularios();
+        await ensureAdmin();
+        resolve();
+      } catch (e) {
+        console.error("❌ Error al inicializar DB:", e.message);
+        resolve();
+      }
+    });
   });
 }
 
