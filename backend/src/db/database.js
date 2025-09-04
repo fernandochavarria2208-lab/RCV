@@ -7,7 +7,7 @@ const bcrypt = require("bcryptjs");
 const DB_ENGINE = (process.env.DB_ENGINE || "sqlite").toLowerCase(); // 'sqlite' | 'pg'
 
 let db;           // sqlite db o wrapper pg
-let isPg = DB_ENGINE === "pg";
+let isPg = ["pg", "postgres", "postgresql"].includes(DB_ENGINE);
 
 /* -------------------- Util: formateo ? -> $1,$2 (para pg) -------------------- */
 function toPg(sql = "", params = []) {
