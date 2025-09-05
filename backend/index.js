@@ -1,11 +1,9 @@
-// backend/index.js
 "use strict";
 
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 
-// Opcional: si usas .env localmente
 try { require("dotenv").config(); } catch {}
 
 const { initDB, getDB } = require("./src/db/database");
@@ -16,13 +14,21 @@ const PORT = process.env.PORT || 3001;
 // Cloud Run / proxies
 app.set("trust proxy", true);
 
+// CORS (incluye headers que usa tu front)
+const corsOpts = {
+  origin: true,
+  credentials: false,
+  allowedHeaders: ["Content-Type", "Authorization", "X-Actor", "X-Actor-Usuario"],
+};
+app.use(cors(corsOpts));
+app.options("*", cors(corsOpts));
+
 // Middlewares base
-app.use(cors({ origin: true, credentials: false }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("tiny"));
 
-// ---- util para montar rutas sin que truene si falta el archivo
+// ---- util para montar rutas sin romper si falta el archivo
 function mount(path, modulePath) {
   try {
     const router = require(modulePath);
@@ -37,12 +43,15 @@ function mount(path, modulePath) {
 app.get("/api/health", async (_req, res) => {
   try {
     const db = getDB();
-    // funciona tanto en PG como en SQLite
-    db.get ? db.get("SELECT 1 AS ok", [], (err, row) => {
-      if (err) return res.status(500).json({ ok: false, error: err.message });
-      res.json({ ok: true, db: true, ts: new Date().toISOString() });
-    }) : res.json({ ok: true, db: "unknown", ts: new Date().toISOString() });
-  } catch (e) {
+    if (db?.get) {
+      db.get("SELECT 1 AS ok", [], (err, row) => {
+        if (err) return res.status(500).json({ ok: false, error: err.message });
+        res.json({ ok: true, db: !!row, ts: new Date().toISOString() });
+      });
+    } else {
+      res.json({ ok: true, db: "unknown", ts: new Date().toISOString() });
+    }
+  } catch {
     res.status(200).json({ ok: true, db: false, ts: new Date().toISOString() });
   }
 });
@@ -50,8 +59,7 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/auth/_alive", (_req, res) => res.json({ ok: true, mod: "auth" }));
 
 // ---- monta TODAS tus rutas
-// (las que no existan simplemente se omiten con warning)
-mount("/api/auth",        "./src/routes/authRoutes");          // si la tienes
+mount("/api/auth",        "./src/routes/authRoutes");
 mount("/api/usuarios",    "./src/routes/usuariosRoutes");
 mount("/api/clientes",    "./src/routes/clientesRoutes");
 mount("/api/vehiculos",   "./src/routes/vehiculosRoutes");
@@ -65,7 +73,7 @@ mount("/api/gastos",      "./src/routes/gastosRoutes");
 mount("/api/tiempos",     "./src/routes/tiemposRoutes");
 mount("/api/reportes",    "./src/routes/reportesRoutes");
 mount("/api/dashboard",   "./src/routes/dashboardRoutes");
-mount("/api/bitacora",    "./src/routes/bitacoraRoutes");      // si existe
+mount("/api/bitacora",    "./src/routes/bitacoraRoutes");
 
 // 404
 app.use((_req, res) => res.status(404).json({ ok: false, error: "Not found" }));
@@ -80,7 +88,7 @@ app.use((err, _req, res, _next) => {
 // ---- levantar servidor tras inicializar DB
 (async () => {
   try {
-    await initDB(); // crea tablas mínimas si faltan (usuarios, etc.)
+    await initDB();
     app.listen(PORT, () => console.log(`🚀 API escuchando en :${PORT}`));
   } catch (e) {
     console.error("No se pudo inicializar DB:", e);
