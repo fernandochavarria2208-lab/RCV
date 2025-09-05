@@ -1,10 +1,12 @@
-// Backend/src/controllers/clientesController.js
-const { getDB } = require('../db/database');
+"use strict";
 
-function nowISO(){ return new Date().toISOString(); }
+const { getDB } = require("../db/database");
 
-// Helper: arma objeto cliente con alias documento
-function mapRowCliente(row){
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function mapRowCliente(row) {
   if (!row) return row;
   return {
     ...row,
@@ -12,9 +14,9 @@ function mapRowCliente(row){
   };
 }
 
-function getClientes(req, res){
+function getClientes(req, res) {
   const db = getDB();
-  const q = String((req.query.q||'').trim().toLowerCase());
+  const q = String((req.query.q || "").trim().toLowerCase());
 
   const base = `
     SELECT
@@ -22,23 +24,28 @@ function getClientes(req, res){
       identificacion,
       telefono, email, direccion, ciudad, notas, estado,
       fechaRegistro, actualizado,
-      identificacion AS documento   -- alias para frontend
+      identificacion AS documento
     FROM clientes
   `;
 
   const sql = q
-    ? `${base} WHERE lower(nombre) LIKE ? OR lower(identificacion) LIKE ? OR lower(telefono) LIKE ? OR lower(email) LIKE ? ORDER BY id DESC`
+    ? `${base}
+       WHERE lower(nombre) LIKE ?
+          OR lower(identificacion) LIKE ?
+          OR lower(telefono) LIKE ?
+          OR lower(email) LIKE ?
+       ORDER BY id DESC`
     : `${base} ORDER BY id DESC`;
 
   const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [];
 
-  db.all(sql, params, (err, rows)=>{
+  db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json((rows||[]).map(mapRowCliente));
+    res.json((rows || []).map(mapRowCliente));
   });
 }
 
-function getCliente(req, res){
+function getCliente(req, res) {
   const db = getDB();
   const sql = `
     SELECT
@@ -47,53 +54,85 @@ function getCliente(req, res){
       telefono, email, direccion, ciudad, notas, estado,
       fechaRegistro, actualizado,
       identificacion AS documento
-    FROM clientes WHERE id = ?
+    FROM clientes
+    WHERE id = ?
   `;
-  db.get(sql, [req.params.id], (err, row)=>{
+  db.get(sql, [req.params.id], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'Cliente no encontrado' });
+    if (!row) return res.status(404).json({ error: "Cliente no encontrado" });
     res.json(mapRowCliente(row));
   });
 }
 
-function crearCliente(req, res){
-  // aceptar documento o identificacion indistintamente
+function crearCliente(req, res) {
   const {
     nombre,
-    documento, identificacion: identificacionBody,
-    telefono, email, direccion, ciudad, notas, estado
+    documento,
+    identificacion: identificacionBody,
+    telefono,
+    email,
+    direccion,
+    ciudad,
+    notas,
+    estado,
   } = req.body || {};
 
-  if (!nombre) return res.status(400).json({ error: 'nombre requerido' });
+  if (!nombre) return res.status(400).json({ error: "nombre requerido" });
 
-  const identificacion = (documento ?? identificacionBody ?? '').trim();
+  const identificacion = (documento ?? identificacionBody ?? "").trim();
   const db = getDB();
   const ahora = nowISO();
 
   db.run(
-    `INSERT INTO clientes (nombre, identificacion, telefono, email, direccion, ciudad, notas, estado, fechaRegistro, actualizado)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [nombre||'', identificacion, telefono||'', email||'', direccion||'', ciudad||'', notas||'', (estado||'activo'), ahora, ahora],
-    function(err){
-      if (err) return res.status(500).json({ error: err.message });
+    `
+    INSERT INTO clientes
+      (nombre, identificacion, telefono, email, direccion, ciudad, notas, estado, fechaRegistro, actualizado)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      nombre || "",
+      identificacion,
+      telefono || "",
+      email || "",
+      direccion || "",
+      ciudad || "",
+      notas || "",
+      estado ?? "activo",
+      ahora,
+      ahora,
+    ],
+    function (err) {
+      if (err) {
+        if (String(err.message).includes("UNIQUE")) {
+          return res.status(409).json({ error: "Cliente duplicado" });
+        }
+        return res.status(500).json({ error: err.message });
+      }
       res.status(201).json({ id: this.lastID });
     }
   );
 }
 
-function actualizarCliente(req, res){
+function actualizarCliente(req, res) {
   const {
     nombre,
-    documento, identificacion: identificacionBody,
-    telefono, email, direccion, ciudad, notas, estado
+    documento,
+    identificacion: identificacionBody,
+    telefono,
+    email,
+    direccion,
+    ciudad,
+    notas,
+    estado,
   } = req.body || {};
 
-  const identificacion = (documento ?? identificacionBody ?? '').trim();
+  const identificacion = (documento ?? identificacionBody ?? "").trim();
   const db = getDB();
   const ahora = nowISO();
 
   db.run(
-    `UPDATE clientes
+    `
+    UPDATE clientes
        SET nombre=?,
            identificacion=?,
            telefono=?,
@@ -103,27 +142,41 @@ function actualizarCliente(req, res){
            notas=?,
            estado=?,
            actualizado=?
-     WHERE id = ?`,
+     WHERE id = ?
+    `,
     [
-      (nombre ?? ''), identificacion,
-      (telefono ?? ''), (email ?? ''), (direccion ?? ''), (ciudad ?? ''), (notas ?? ''),
-      (estado || 'activo'), ahora, req.params.id
+      nombre ?? "",
+      identificacion,
+      telefono ?? "",
+      email ?? "",
+      direccion ?? "",
+      ciudad ?? "",
+      notas ?? "",
+      estado ?? "activo",
+      ahora,
+      req.params.id,
     ],
-    function(err){
+    function (err) {
       if (err) return res.status(500).json({ error: err.message });
-      if (!this.changes) return res.status(404).json({ error: 'Cliente no encontrado' });
+      if (!this.changes) return res.status(404).json({ error: "Cliente no encontrado" });
       res.json({ ok: true });
     }
   );
 }
 
-function eliminarCliente(req, res){
+function eliminarCliente(req, res) {
   const db = getDB();
-  db.run(`DELETE FROM clientes WHERE id = ?`, [req.params.id], function(err){
+  db.run(`DELETE FROM clientes WHERE id = ?`, [req.params.id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    if (!this.changes) return res.status(404).json({ error: 'Cliente no encontrado' });
+    if (!this.changes) return res.status(404).json({ error: "Cliente no encontrado" });
     res.json({ ok: true });
   });
 }
 
-module.exports = { getClientes, getCliente, crearCliente, actualizarCliente, eliminarCliente };
+module.exports = {
+  getClientes,
+  getCliente,
+  crearCliente,
+  actualizarCliente,
+  eliminarCliente,
+};

@@ -1,5 +1,6 @@
-// backend/src/controllers/vehiculosController.js
-const { getDB } = require('../db/database');
+"use strict";
+
+const { getDB } = require("../db/database");
 
 function nowISO() {
   return new Date().toISOString();
@@ -14,14 +15,14 @@ function mapVehiculoRow(row) {
   if (!row) return row;
   return {
     ...row,
-    clienteId: row.cliente_id ?? null
+    clienteId: row.cliente_id ?? null,
   };
 }
 
 // GET /api/vehiculos?q=
 function getVehiculos(req, res) {
   const db = getDB();
-  const q = String((req.query.q || '').trim().toLowerCase());
+  const q = String((req.query.q || "").trim().toLowerCase());
 
   const base = `
     SELECT
@@ -43,7 +44,7 @@ function getVehiculos(req, res) {
        ORDER BY v.id DESC`
     : `${base} ORDER BY v.id DESC`;
 
-  const params = q ? [`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`] : [];
+  const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [];
 
   db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -66,7 +67,7 @@ function getVehiculo(req, res) {
   `;
   db.get(sql, [req.params.id], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'Vehículo no encontrado' });
+    if (!row) return res.status(404).json({ error: "Vehículo no encontrado" });
     res.json(mapVehiculoRow(row));
   });
 }
@@ -76,27 +77,34 @@ function crearVehiculo(req, res) {
   const body = req.body || {};
   const cliente_id = sanitizeInt(body.cliente_id ?? body.clienteId);
 
-  const placa  = (body.placa  || '').trim();
-  const marca  = (body.marca  || '').trim();
-  const modelo = (body.modelo || '').trim();
-  const anio   = sanitizeInt(body.anio);
-  const color  = (body.color  || '').trim();
-  const vin    = (body.vin    || '').trim();
-  const notas  = (body.notas  || '').trim();
+  const placa = (body.placa || "").trim();
+  const marca = (body.marca || "").trim();
+  const modelo = (body.modelo || "").trim();
+  const anio = sanitizeInt(body.anio);
+  const color = (body.color || "").trim();
+  const vin = (body.vin || "").trim();
+  const notas = (body.notas || "").trim();
 
-  if (!placa) return res.status(400).json({ error: 'Placa requerida' });
-  if (!cliente_id) return res.status(400).json({ error: 'cliente_id requerido' });
+  if (!placa) return res.status(400).json({ error: "Placa requerida" });
+  if (!cliente_id) return res.status(400).json({ error: "cliente_id requerido" });
 
   const db = getDB();
   const ahora = nowISO();
 
   db.run(
-    `INSERT INTO vehiculos
+    `
+    INSERT INTO vehiculos
       (placa, marca, modelo, anio, color, vin, notas, cliente_id, fechaRegistro, actualizado)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
     [placa, marca, modelo, anio, color, vin, notas, cliente_id, ahora, ahora],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+    function (err) {
+      if (err) {
+        if (String(err.message).includes("UNIQUE")) {
+          return res.status(409).json({ error: "La placa ya existe" });
+        }
+        return res.status(500).json({ error: err.message });
+      }
       res.status(201).json({ id: this.lastID });
     }
   );
@@ -111,32 +119,34 @@ function actualizarVehiculo(req, res) {
   const ahora = nowISO();
 
   db.run(
-    `UPDATE vehiculos
-       SET placa = COALESCE(?, placa),
-           marca = COALESCE(?, marca),
-           modelo = COALESCE(?, modelo),
-           anio = COALESCE(?, anio),
-           color = COALESCE(?, color),
-           vin = COALESCE(?, vin),
-           notas = COALESCE(?, notas),
+    `
+    UPDATE vehiculos
+       SET placa      = COALESCE(?, placa),
+           marca      = COALESCE(?, marca),
+           modelo     = COALESCE(?, modelo),
+           anio       = COALESCE(?, anio),
+           color      = COALESCE(?, color),
+           vin        = COALESCE(?, vin),
+           notas      = COALESCE(?, notas),
            cliente_id = COALESCE(?, cliente_id),
-           actualizado = ?
-     WHERE id = ?`,
+           actualizado= ?
+     WHERE id = ?
+    `,
     [
-      (body.placa ?? null),
-      (body.marca ?? null),
-      (body.modelo ?? null),
+      body.placa ?? null,
+      body.marca ?? null,
+      body.modelo ?? null,
       sanitizeInt(body.anio),
-      (body.color ?? null),
-      (body.vin ?? null),
-      (body.notas ?? null),
-      (cliente_id != null ? sanitizeInt(cliente_id) : null),
+      body.color ?? null,
+      body.vin ?? null,
+      body.notas ?? null,
+      cliente_id != null ? sanitizeInt(cliente_id) : null,
       ahora,
-      req.params.id
+      req.params.id,
     ],
-    function(err) {
+    function (err) {
       if (err) return res.status(500).json({ error: err.message });
-      if (!this.changes) return res.status(404).json({ error: 'Vehículo no encontrado' });
+      if (!this.changes) return res.status(404).json({ error: "Vehículo no encontrado" });
       res.json({ ok: true });
     }
   );
@@ -145,9 +155,9 @@ function actualizarVehiculo(req, res) {
 // DELETE /api/vehiculos/:id
 function eliminarVehiculo(req, res) {
   const db = getDB();
-  db.run(`DELETE FROM vehiculos WHERE id = ?`, [req.params.id], function(err) {
+  db.run(`DELETE FROM vehiculos WHERE id = ?`, [req.params.id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    if (!this.changes) return res.status(404).json({ error: 'Vehículo no encontrado' });
+    if (!this.changes) return res.status(404).json({ error: "Vehículo no encontrado" });
     res.json({ ok: true });
   });
 }
@@ -157,5 +167,5 @@ module.exports = {
   getVehiculo,
   crearVehiculo,
   actualizarVehiculo,
-  eliminarVehiculo
+  eliminarVehiculo,
 };
