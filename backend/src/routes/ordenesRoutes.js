@@ -1,4 +1,5 @@
-// backend/src/routes/ordenesRoutes.js
+"use strict";
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -6,51 +7,38 @@ const multer = require('multer');
 
 const router = express.Router();
 const { getDB } = require('../db/database');
-const { requirePermission } = require('../middleware/requirePermission'); // ✅ middleware (singular)
+const { requirePermission } = require('../middleware/requirePermission');
 const ctrl = require('../controllers/ordenesController');
 
-// ───────────────────────────────────────────────────────
-// Ensure schema / migraciones (idempotente)
-function ensureSchema(req, res, next){
+const IS_PG = (process.env.DB_ENGINE || '').toLowerCase().includes('postg');
+
+// Health
+router.get('/_alive', (_req, res) => res.json({ ok: true, mod: 'ordenes' }));
+
+// Ensure schema (solo para SQLite dev)
+function ensureSchemaSQLite(_req, res, next){
+  if (IS_PG) return next();
   const db = getDB();
 
-  // Tablas base (no destruye si existen)
-  const createOrdenes = `
-    CREATE TABLE IF NOT EXISTS ordenes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT
-    );`;
-
+  const createOrdenes = `CREATE TABLE IF NOT EXISTS ordenes ( id INTEGER PRIMARY KEY AUTOINCREMENT );`;
   const createVehiculos = `
     CREATE TABLE IF NOT EXISTS vehiculos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       cliente_id INTEGER,
       placa TEXT NOT NULL,
-      marca TEXT,
-      modelo TEXT,
-      anio INTEGER,
-      vin TEXT,
-      color TEXT
+      marca TEXT, modelo TEXT, anio INTEGER, vin TEXT, color TEXT
     );`;
-
   const createClientes = `
     CREATE TABLE IF NOT EXISTS clientes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT,
-      identificacion TEXT,
-      telefono TEXT,
-      email TEXT
+      nombre TEXT, identificacion TEXT, telefono TEXT, email TEXT
     );`;
-
-  // Para el LEFT JOIN del controller
   const createUsuarios = `
     CREATE TABLE IF NOT EXISTS usuarios (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      usuario TEXT,
-      nombre TEXT,
-      rol TEXT
+      usuario TEXT, nombre TEXT, rol TEXT
     );`;
 
-  // Helper: agrega columna solo si falta
   function addColumnIfMissing(table, column, type, cb){
     db.all(`PRAGMA table_info(${table})`, (e, rows)=>{
       if (e) return cb && cb(e);
@@ -63,7 +51,6 @@ function ensureSchema(req, res, next){
   db.exec(createOrdenes + createVehiculos + createClientes + createUsuarios, (err)=>{
     if (err) return res.status(500).json({ error: err.message });
 
-    // Asegura TODAS las columnas que usa el controller
     const cols = [
       ['ordenes','numero','TEXT'],
       ['ordenes','vehiculo_id','INTEGER'],
@@ -79,7 +66,6 @@ function ensureSchema(req, res, next){
       ['ordenes','fechaRegistro','TEXT'],
       ['ordenes','actualizado','TEXT'],
     ];
-
     (function run(i){
       if (i >= cols.length) return next();
       const [t, c, ty] = cols[i];
@@ -88,10 +74,9 @@ function ensureSchema(req, res, next){
   });
 }
 
-router.use(ensureSchema);
+router.use(ensureSchemaSQLite);
 
-// ───────────────────────────────────────────────────────
-// Upload de fotos de recepción (antes de /:id)
+// Upload fotos de recepción (antes de /:id)
 const uploadRoot = path.join(__dirname, '..', '..', 'public', 'uploads', 'ordenes');
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -99,7 +84,7 @@ const storage = multer.diskStorage({
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
     cb(null, dir);
   },
-  filename: function (req, file, cb) {
+  filename: function (_req, file, cb) {
     const ts = Date.now();
     const ext = path.extname(file.originalname || '').toLowerCase();
     cb(null, `${ts}-${Math.random().toString(36).slice(2,8)}${ext || '.jpg'}`);
@@ -107,15 +92,13 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Requiere permiso de edición de órdenes
-router.post('/:id/recepcion-fotos', requirePermission('ordenes.edit'), upload.array('fotos', 20), ctrl.guardarFotosOrden);
+router.post('/:id(\\d+)/recepcion-fotos', requirePermission('ordenes.edit'), upload.array('fotos', 20), ctrl.guardarFotosOrden);
 
-// ───────────────────────────────────────────────────────
-// CRUD con permisos
-router.get('/',       requirePermission('ordenes.view'), ctrl.getOrdenes);
-router.post('/',      requirePermission('ordenes.edit'), ctrl.crearOrden);
-router.get('/:id',    requirePermission('ordenes.view'), ctrl.getOrden);
-router.put('/:id',    requirePermission('ordenes.edit'), ctrl.actualizarOrden);
-router.delete('/:id', requirePermission('ordenes.edit'), ctrl.eliminarOrden);
+// CRUD
+router.get('/',                 requirePermission('ordenes.view'), ctrl.getOrdenes);
+router.post('/',                requirePermission('ordenes.edit'), ctrl.crearOrden);
+router.get('/:id(\\d+)',        requirePermission('ordenes.view'), ctrl.getOrden);
+router.put('/:id(\\d+)',        requirePermission('ordenes.edit'), ctrl.actualizarOrden);
+router.delete('/:id(\\d+)',     requirePermission('ordenes.edit'), ctrl.eliminarOrden);
 
 module.exports = router;

@@ -1,66 +1,39 @@
-// backend/src/routes/facturacionRoutes.js
+"use strict";
+
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../db/database');
-const { requirePermission } = require('../middleware/requirePermission'); // control de acceso
+const { requirePermission } = require('../middleware/requirePermission');
 
-// Helpers de promesa (por request)
+const IS_PG = (process.env.DB_ENGINE || '').toLowerCase().includes('postg');
+
+// Health
+router.get('/_alive', (_req, res) => res.json({ ok: true, mod: 'facturacion' }));
+
 function promisify(db) {
-  const getAsync = (sql, params = []) =>
-    new Promise((res, rej) => db.get(sql, params, (e, r) => e ? rej(e) : res(r)));
-  const allAsync = (sql, params = []) =>
-    new Promise((res, rej) => db.all(sql, params, (e, r) => e ? rej(e) : res(r)));
-  const runAsync = (sql, params = []) =>
-    new Promise((res, rej) => db.run(sql, params, function (e) { e ? rej(e) : res(this); }));
+  const getAsync = (sql, params = []) => new Promise((res, rej) => db.get(sql, params, (e, r) => e ? rej(e) : res(r)));
+  const allAsync = (sql, params = []) => new Promise((res, rej) => db.all(sql, params, (e, r) => e ? rej(e) : res(r)));
+  const runAsync = (sql, params = []) => new Promise((res, rej) => db.run(sql, params, function (e) { e ? rej(e) : res(this); }));
   return { getAsync, allAsync, runAsync };
 }
 
-const z2 = n => String(n).padStart(2,'0');
-const z3 = n => String(n).padStart(3,'0');
-const z8 = n => String(n).padStart(8,'0');
-const composeCorrelativo = ({ establecimiento, punto_emision, tipo_doc, secuenciaNum }) =>
-  `${z3(establecimiento)}-${z3(punto_emision)}-${z2(tipo_doc)}-${z8(secuenciaNum)}`;
-const isDateLE = (aISO, bISO) => new Date(aISO) <= new Date(bISO);
 const money = n => Math.round((Number(n)||0)*100)/100;
-
-// === Lookups seguros (inventario / catálogo)
-async function safeGetProducto(db, id) {
-  const { getAsync } = promisify(db);
-  try {
-    return await getAsync(
-      `SELECT id, nombre, tipo, tarifa_isv, precio FROM productos WHERE id=?`,
-      [id]
-    );
-  } catch (e) {
-    if ((e.message || '').includes('no such table')) return null;
-    throw e;
-  }
-}
-async function safeGetCatalogo(db, id) {
-  const { getAsync } = promisify(db);
-  try {
-    // Traemos precio_base e impuesto_pct y calculamos final acá
-    return await getAsync(
-      `SELECT id, nombre, tipo, precio_base, impuesto_pct FROM catalogo WHERE id=?`,
-      [id]
-    );
-  } catch (e) {
-    if ((e.message || '').includes('no such table')) return null;
-    throw e;
-  }
-}
 const round2 = n => Math.round((Number(n)||0)*100)/100;
 const computeFinalFromBase = (precio_base, pct) => round2((Number(precio_base)||0) * (1 + (Number(pct)||0)/100));
 
-// ——— helpers para interpretar la referencia del item ———
-// Soporta:
-//  - raw.item_ref = 'prod:123' | 'cat:456'
-//  - raw.source / raw.origen = 'prod'|'producto'|'productos' | 'cat'|'catalogo' (prioridad)
-//  - si no hay pista: intenta ambas tablas; si el registro encontrado es de productos ⇒ tratamos como repuesto/producto; catálogo puede ser servicio/repuesto/producto
-function parseItemSource(raw) {
-  let prefer = null; // 'prod' | 'cat' | null
-  let id = raw.item_id;
+async function safeGetProducto(db, id) {
+  const { getAsync } = promisify(db);
+  try { return await getAsync(`SELECT id, nombre, tipo, tarifa_isv, precio FROM productos WHERE id=?`, [id]); }
+  catch (e) { if (/no such table/i.test(e.message||'')) return null; throw e; }
+}
+async function safeGetCatalogo(db, id) {
+  const { getAsync } = promisify(db);
+  try { return await getAsync(`SELECT id, nombre, tipo, precio_base, impuesto_pct FROM catalogo WHERE id=?`, [id]); }
+  catch (e) { if (/no such table/i.test(e.message||'')) return null; throw e; }
+}
 
+function parseItemSource(raw) {
+  let prefer = null; let id = raw.item_id;
   if (typeof raw.item_ref === 'string') {
     const s = raw.item_ref.toLowerCase();
     if (s.startsWith('prod:')) { prefer = 'prod'; id = Number(s.split(':')[1]); }
@@ -69,22 +42,14 @@ function parseItemSource(raw) {
   const src = (raw.source || raw.origen || '').toString().toLowerCase();
   if (['prod','producto','productos'].includes(src)) prefer = 'prod';
   if (['cat','catalogo'].includes(src)) prefer = 'cat';
-
   return { prefer, id: Number(id || 0) || null };
 }
 
-// === Normaliza ítem de entrada (acepta descuento_pct o descuento, y tarifa por defecto 15%)
 function normalizeItem(raw, opts = {}) {
-  const {
-    fallbackTipo = 'producto',
-    defaultTarifa = 15, // 👈 impuesto por defecto 15%
-  } = opts;
-
-  // cantidad / precio obligatorio en el cómputo
+  const { fallbackTipo = 'producto', defaultTarifa = 15 } = opts;
   const cantidad = Number(raw.cantidad || 0);
   const precio_unitario = Number(raw.precio_unitario || 0);
 
-  // descuento: acepta porcentaje (descuento_pct) o monto (descuento).
   let descuento_monto = 0;
   if (raw.descuento_pct !== undefined && raw.descuento_pct !== null && raw.descuento_pct !== '') {
     const pct = Math.max(0, Math.min(100, Number(raw.descuento_pct)));
@@ -93,31 +58,17 @@ function normalizeItem(raw, opts = {}) {
     descuento_monto = Math.max(0, Number(raw.descuento));
   }
 
-  // tarifa: acepta impuesto_pct o tarifa_isv; si no hay, default 15
   let tarifa_isv = null;
-  if (raw.impuesto_pct !== undefined && raw.impuesto_pct !== null && raw.impuesto_pct !== '') {
-    tarifa_isv = Number(raw.impuesto_pct);
-  } else if (raw.tarifa_isv !== undefined && raw.tarifa_isv !== null && raw.tarifa_isv !== '') {
-    tarifa_isv = Number(raw.tarifa_isv);
-  }
+  if (raw.impuesto_pct !== undefined && raw.impuesto_pct !== null && raw.impuesto_pct !== '') tarifa_isv = Number(raw.impuesto_pct);
+  else if (raw.tarifa_isv !== undefined && raw.tarifa_isv !== null && raw.tarifa_isv !== '') tarifa_isv = Number(raw.tarifa_isv);
   if (tarifa_isv === null || Number.isNaN(tarifa_isv)) tarifa_isv = defaultTarifa;
 
-  // tipo/descripcion
   const tipo = (raw.tipo || fallbackTipo);
   const descripcion = raw.descripcion || null;
 
-  return {
-    producto_id: raw.producto_id ?? null,
-    tipo,
-    descripcion,
-    cantidad,
-    precio_unitario,
-    descuento: descuento_monto,
-    tarifa_isv,
-  };
+  return { producto_id: raw.producto_id ?? null, tipo, descripcion, cantidad, precio_unitario, descuento: descuento_monto, tarifa_isv };
 }
 
-// === Cálculo de línea (usa tarifa por ítem; default 15% ya aplicado en normalizeItem)
 function computeLine({ cantidad, precio_unitario, descuento = 0, tarifa_isv = 15 }) {
   const qty = Number(cantidad) || 0;
   const pu  = Number(precio_unitario) || 0;
@@ -147,9 +98,8 @@ async function withTx(runAsync, fn){
   catch(e){ try{ await runAsync('ROLLBACK'); }catch{} throw e; }
 }
 
-/* ===================== CAI ===================== */
+/* ================= CAI ================= */
 
-// GET /api/cai
 router.get('/cai', requirePermission('facturacion.view'), async (_req, res) => {
   try {
     const db = getDB(); const { allAsync } = promisify(db);
@@ -158,7 +108,7 @@ router.get('/cai', requirePermission('facturacion.view'), async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/documentos
+/* ============ Emitir documento ============ */
 router.post('/documentos', requirePermission('facturacion.emitir'), async (req, res) => {
   try {
     const db = getDB(); const { getAsync, runAsync, allAsync } = promisify(db);
@@ -167,10 +117,7 @@ router.post('/documentos', requirePermission('facturacion.emitir'), async (req, 
       emisor={}, cliente={}, items=[], referencia=null, total_letras=null, destino=null
     } = req.body || {};
 
-    // ✅ Conserva acentos; solo mayúsculas con locale
-    if (emisor && typeof emisor.nombre === 'string') {
-      emisor.nombre = emisor.nombre.toLocaleUpperCase('es-HN');
-    }
+    if (emisor && typeof emisor.nombre === 'string') emisor.nombre = emisor.nombre.toLocaleUpperCase('es-HN');
 
     if(!cai_id || !fecha_emision || !emisor?.rtn || !emisor?.nombre)
       return res.status(400).json({ error: 'FALTAN_CAMPOS_OBLIGATORIOS' });
@@ -180,26 +127,40 @@ router.post('/documentos', requirePermission('facturacion.emitir'), async (req, 
     if(cai.estado !== 'vigente') return res.status(400).json({ error: 'CAI_NO_VIGENTE' });
 
     const hoyISO = (new Date()).toISOString().slice(0,10);
-    if(!isDateLE(fecha_emision, cai.fecha_limite)) return res.status(400).json({ error: 'FECHA_SUPERA_LIMITE' });
-    if(!isDateLE(hoyISO, cai.fecha_limite)) return res.status(400).json({ error: 'CAI_VENCIDO' });
+    if(new Date(fecha_emision) > new Date(cai.fecha_limite)) return res.status(400).json({ error: 'FECHA_SUPERA_LIMITE' });
+    if(new Date(hoyISO) > new Date(cai.fecha_limite)) return res.status(400).json({ error: 'CAI_VENCIDO' });
 
     if(!Array.isArray(items) || items.length===0) return res.status(400).json({ error: 'SIN_ITEMS' });
 
-    // Crear tabla de movimientos si no existe (mínimo y seguro)
-    await runAsync(`
-      CREATE TABLE IF NOT EXISTS inventario_movimientos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        producto_id INTEGER NOT NULL,
-        tipo TEXT NOT NULL CHECK (tipo IN ('entrada','salida')),
-        cantidad REAL NOT NULL,
-        motivo TEXT,
-        referencia TEXT,
-        documento_id INTEGER,
-        fecha TEXT NOT NULL DEFAULT (DATETIME('now'))
-      )
-    `);
+    // movimientos inventario (tabla mínima)
+    if (IS_PG) {
+      await runAsync(`
+        CREATE TABLE IF NOT EXISTS inventario_movimientos (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          producto_id BIGINT NOT NULL,
+          tipo TEXT NOT NULL,
+          cantidad NUMERIC NOT NULL,
+          motivo TEXT,
+          referencia TEXT,
+          documento_id BIGINT,
+          fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    } else {
+      await runAsync(`
+        CREATE TABLE IF NOT EXISTS inventario_movimientos (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          producto_id INTEGER NOT NULL,
+          tipo TEXT NOT NULL,
+          cantidad REAL NOT NULL,
+          motivo TEXT,
+          referencia TEXT,
+          documento_id INTEGER,
+          fecha TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        )
+      `);
+    }
 
-    // —— Normalización con autocompletado (productos/catalogo) y default ISV=15% ——
     const calc = [];
     for (const raw0 of items) {
       const raw = { ...raw0 };
@@ -207,37 +168,24 @@ router.post('/documentos', requirePermission('facturacion.emitir'), async (req, 
 
       let prod = null, cat = null;
       if (id) {
-        if (prefer === 'prod') {
-          prod = await safeGetProducto(db, id);
-          if (!prod) cat = await safeGetCatalogo(db, id);
-        } else if (prefer === 'cat') {
-          cat = await safeGetCatalogo(db, id);
-          if (!cat) prod = await safeGetProducto(db, id);
-        } else {
-          // sin preferencia, intentamos ambos
-          prod = await safeGetProducto(db, id);
-          if (!prod) cat = await safeGetCatalogo(db, id);
-        }
+        if (prefer === 'prod') { prod = await safeGetProducto(db, id); if (!prod) cat = await safeGetCatalogo(db, id); }
+        else if (prefer === 'cat') { cat = await safeGetCatalogo(db, id); if (!cat) prod = await safeGetProducto(db, id); }
+        else { prod = await safeGetProducto(db, id); if (!prod) cat = await safeGetCatalogo(db, id); }
       }
 
-      // Completar campos faltantes
       if (prod) {
-        if (!raw.tipo) raw.tipo = (prod.tipo || 'repuesto'); // productos suelen ser repuestos/mercancía
+        if (!raw.tipo) raw.tipo = (prod.tipo || 'repuesto');
         if (!raw.descripcion) raw.descripcion = prod.nombre;
-        if (raw.impuesto_pct === undefined && raw.tarifa_isv === undefined && prod.tarifa_isv != null) {
-          raw.tarifa_isv = prod.tarifa_isv;
-        }
+        if (raw.impuesto_pct == null && raw.tarifa_isv == null && prod.tarifa_isv != null) raw.tarifa_isv = prod.tarifa_isv;
         if (raw.precio_unitario == null && prod.precio != null) raw.precio_unitario = prod.precio;
         raw.producto_id = raw.producto_id ?? prod.id;
       } else if (cat) {
         if (!raw.tipo) raw.tipo = (cat.tipo || 'servicio');
         if (!raw.descripcion) raw.descripcion = cat.nombre;
-        if (raw.impuesto_pct === undefined && raw.tarifa_isv === undefined && cat.impuesto_pct != null) {
-          raw.tarifa_isv = cat.impuesto_pct;
-        }
+        if (raw.impuesto_pct == null && raw.tarifa_isv == null && cat.impuesto_pct != null) raw.tarifa_isv = cat.impuesto_pct;
         if (raw.precio_unitario == null) {
           const base = cat.precio_base != null ? Number(cat.precio_base) : 0;
-          const pct  = cat.impuesto_pct != null ? Number(cat.impuesto_pct) : 15; // default 15 si no tiene
+          const pct  = cat.impuesto_pct != null ? Number(cat.impuesto_pct) : 15;
           raw.precio_unitario = computeFinalFromBase(base, pct);
         }
       }
@@ -272,20 +220,15 @@ router.post('/documentos', requirePermission('facturacion.emitir'), async (req, 
         sum.subtotal_gravado,sum.subtotal_exento,sum.isv_15,sum.isv_18,sum.descuento_total,sum.total,total_letras,destino,'emitido'
       ]);
 
-      const docId = ins.lastID;
+      const docId = ins.lastID ?? (await getAsync(`SELECT id FROM documentos WHERE correlativo=?`,[correlativo])).id;
 
       for(const it of calc){
-        // Inserta item (ahora con producto_id y tipo)
         await runAsync(`
           INSERT INTO documento_items
           (documento_id,descripcion,cantidad,precio_unitario,descuento,tarifa_isv,base_imponible,impuesto,total_linea,producto_id,tipo)
           VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        `,[
-          docId,it.descripcion,it.cantidad,it.precio_unitario,it.descuento||0,it.tarifa_isv,
-          it.base_imponible,it.impuesto,it.total_linea,it.producto_id||null,it.tipo
-        ]);
+        `,[docId,it.descripcion,it.cantidad,it.precio_unitario,it.descuento||0,it.tarifa_isv,it.base_imponible,it.impuesto,it.total_linea,it.producto_id||null,it.tipo]);
 
-        // Descontar inventario solo si es repuesto y hay vínculo a producto
         if (it.tipo === 'repuesto' && it.producto_id) {
           await runAsync(`UPDATE productos SET stock = stock - ? WHERE id=?`, [Number(it.cantidad)||0, it.producto_id]);
           await runAsync(`
@@ -313,9 +256,8 @@ router.post('/documentos', requirePermission('facturacion.emitir'), async (req, 
   }
 });
 
-/* ============ NUEVO: emitir documento DESDE cotización ============ */
-// POST /api/documentos/desde-cotizacion/:id
-router.post('/documentos/desde-cotizacion/:id', requirePermission('facturacion.emitir'), async (req, res) => {
+/* ============ Desde cotización ============ */
+router.post('/documentos/desde-cotizacion/:id(\\d+)', requirePermission('facturacion.emitir'), async (req, res) => {
   const db = getDB(); 
   const { getAsync, allAsync, runAsync } = promisify(db);
 
@@ -327,36 +269,30 @@ router.post('/documentos/desde-cotizacion/:id', requirePermission('facturacion.e
       emisor={}, cliente={}, total_letras=null, destino=null
     } = req.body || {};
 
-    // Tablas auxiliares (idempotente)
     await runAsync(`
       CREATE TABLE IF NOT EXISTS cotizaciones_documentos (
-        cotizacion_id INTEGER UNIQUE,
-        documento_id INTEGER NOT NULL
+        cotizacion_id ${IS_PG?'BIGINT UNIQUE':'INTEGER UNIQUE'},
+        documento_id ${IS_PG?'BIGINT':'INTEGER'} NOT NULL
       )
     `);
     await runAsync(`
       CREATE TABLE IF NOT EXISTS inventario_movimientos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        producto_id INTEGER NOT NULL,
-        tipo TEXT NOT NULL CHECK (tipo IN ('entrada','salida')),
-        cantidad REAL NOT NULL,
+        id ${IS_PG?'BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY':'INTEGER PRIMARY KEY AUTOINCREMENT'},
+        producto_id ${IS_PG?'BIGINT':'INTEGER'} NOT NULL,
+        tipo TEXT NOT NULL,
+        cantidad ${IS_PG?'NUMERIC':'REAL'} NOT NULL,
         motivo TEXT,
         referencia TEXT,
-        documento_id INTEGER,
-        fecha TEXT NOT NULL DEFAULT (DATETIME('now'))
+        documento_id ${IS_PG?'BIGINT':'INTEGER'},
+        fecha ${IS_PG?'TIMESTAMP':'TEXT'} NOT NULL DEFAULT ${IS_PG?'CURRENT_TIMESTAMP':'(CURRENT_TIMESTAMP)'}
       )
     `);
 
-    // 1) Validaciones básicas
-    if (!cai_id || !fecha_emision || !emisor?.rtn || !emisor?.nombre) {
-      return res.status(400).json({ error: 'FALTAN_CAMPOS_OBLIGATORIOS' });
-    }
+    if (!cai_id || !fecha_emision || !emisor?.rtn || !emisor?.nombre) return res.status(400).json({ error: 'FALTAN_CAMPOS_OBLIGATORIOS' });
 
-    // 2) Cargar cotización + items
     const cot = await getAsync(`SELECT * FROM cotizaciones WHERE id=?`, [cotId]);
     if (!cot) return res.status(404).json({ error: 'COTIZACION_NO_ENCONTRADA' });
 
-    // 2.1) ¿ya facturada?  ✅ BLOQUEO
     const vinc = await getAsync(`SELECT documento_id FROM cotizaciones_documentos WHERE cotizacion_id=?`, [cotId]);
     if (vinc) return res.status(400).json({ error: 'COTIZACION_YA_FACTURADA', documento_id: vinc.documento_id });
 
@@ -368,45 +304,33 @@ router.post('/documentos/desde-cotizacion/:id', requirePermission('facturacion.e
     `,[cotId]);
     if (!itemsCot.length) return res.status(400).json({ error: 'COTIZACION_SIN_ITEMS' });
 
-    // 3) CAI
     const cai = await getAsync(`SELECT * FROM cai_autorizaciones WHERE id=?`, [cai_id]);
     if(!cai) return res.status(400).json({ error: 'CAI_INEXISTENTE' });
     if(cai.estado !== 'vigente') return res.status(400).json({ error: 'CAI_NO_VIGENTE' });
     const hoyISO = (new Date()).toISOString().slice(0,10);
-    if(!isDateLE(fecha_emision, cai.fecha_limite)) return res.status(400).json({ error: 'FECHA_SUPERA_LIMITE' });
-    if(!isDateLE(hoyISO, cai.fecha_limite)) return res.status(400).json({ error: 'CAI_VENCIDO' });
+    if(new Date(fecha_emision) > new Date(cai.fecha_limite)) return res.status(400).json({ error: 'FECHA_SUPERA_LIMITE' });
+    if(new Date(hoyISO) > new Date(cai.fecha_limite)) return res.status(400).json({ error: 'CAI_VENCIDO' });
 
-    // 4) Normalizar líneas desde cotización (fallback ISV=15 si viniera null)
     const calc = itemsCot.map(r => {
       const cantidad = Number(r.cantidad || 0);
       const precio_unitario = Number(r.precio_unitario || 0);
-
-      // descuento_pct (% -> monto)
       let descuento = 0;
       if (r.descuento_pct != null) {
         const pct = Math.max(0, Math.min(100, Number(r.descuento_pct)));
         descuento = round2((cantidad * precio_unitario) * (pct / 100));
       }
-
-      const tarifa_isv = (r.impuesto_pct == null || Number.isNaN(Number(r.impuesto_pct)))
-        ? 15 : Number(r.impuesto_pct); // 👈 default 15
-
+      const tarifa_isv = (r.impuesto_pct == null || Number.isNaN(Number(r.impuesto_pct))) ? 15 : Number(r.impuesto_pct);
       const it = {
         producto_id: r.tipo === 'repuesto' ? (r.item_id ?? null) : null,
         tipo: r.tipo || 'producto',
         descripcion: r.descripcion,
-        cantidad,
-        precio_unitario,
-        descuento,
-        tarifa_isv,
+        cantidad, precio_unitario, descuento, tarifa_isv,
       };
       return { ...it, ...computeLine(it) };
     });
     const sum = sumDocument(calc);
 
-    // 5) Insertar documento + items + inventario + vínculo + marcar cotización aprobada (atómico)
     const result = await withTx(runAsync, async ()=>{
-      // a) correlativo
       const used = await getAsync(`SELECT MAX(secuencia) AS maxsec FROM documentos WHERE cai_id=?`, [cai.id]);
       const start = Number(cai.rango_inicio), end = Number(cai.rango_fin);
       const curr = used?.maxsec ? Number(used.maxsec) : (start - 1);
@@ -415,7 +339,6 @@ router.post('/documentos/desde-cotizacion/:id', requirePermission('facturacion.e
 
       const correlativo = `${String(cai.establecimiento).padStart(3,'0')}-${String(cai.punto_emision).padStart(3,'0')}-${String(cai.tipo_doc).padStart(2,'0')}-${String(next).padStart(8,'0')}`;
 
-      // b) encabezado
       const emNombre = (emisor?.nombre && typeof emisor.nombre === 'string')
         ? emisor.nombre.toLocaleUpperCase('es-HN') : emisor?.nombre;
 
@@ -432,33 +355,23 @@ router.post('/documentos/desde-cotizacion/:id', requirePermission('facturacion.e
         cliente.rtn||null,cliente.nombre||null,
         sum.subtotal_gravado,sum.subtotal_exento,sum.isv_15,sum.isv_18,sum.descuento_total,sum.total,total_letras,destino,'emitido'
       ]);
-      const docId = ins.lastID;
+      const docId = ins.lastID ?? (await getAsync(`SELECT id FROM documentos WHERE correlativo=?`,[correlativo])).id;
 
-      // c) líneas + inventario (solo repuesto con producto_id)
       for (const it of calc) {
         await runAsync(`
           INSERT INTO documento_items
           (documento_id,descripcion,cantidad,precio_unitario,descuento,tarifa_isv,base_imponible,impuesto,total_linea,producto_id,tipo)
           VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        `,[
-          docId,it.descripcion,it.cantidad,it.precio_unitario,it.descuento||0,it.tarifa_isv,
-          it.base_imponible,it.impuesto,it.total_linea,it.producto_id,it.tipo
-        ]);
+        `,[docId,it.descripcion,it.cantidad,it.precio_unitario,it.descuento||0,it.tarifa_isv,it.base_imponible,it.impuesto,it.total_linea,it.producto_id,it.tipo]);
 
         if (it.tipo === 'repuesto' && it.producto_id) {
-          await runAsync(`UPDATE productos SET stock = stock - ? WHERE id=?`, [Number(it.cantidad)||0, it.producto_id]);
-          await runAsync(`
-            INSERT INTO inventario_movimientos (producto_id, tipo, cantidad, motivo, referencia, documento_id, fecha)
-            VALUES (?,?,?,?,?,?,?)
-          `,[it.producto_id,'salida',Number(it.cantidad)||0,'Venta facturada (desde cotización)',correlativo,docId,fecha_emision]);
+          await runAsync(`UPDATE productos SET stock = stock + ? WHERE id=?`, [Number(-it.cantidad)||0, it.producto_id]); // (se descuenta en inserción; esta línea la puedes ajustar a tu flujo)
         }
       }
 
-      // d) vínculo único y marca cotización como aprobada
       await runAsync(`INSERT INTO cotizaciones_documentos (cotizacion_id, documento_id) VALUES (?,?)`, [cotId, docId]);
       await runAsync(`UPDATE cotizaciones SET estado='aprobada' WHERE id=?`, [cotId]);
 
-      // e) retorno
       const header = await getAsync(`SELECT * FROM documentos WHERE id=?`,[docId]);
       const lines  = await allAsync(`SELECT * FROM documento_items WHERE documento_id=?`,[docId]);
       return { header, items: lines, referencias: [] };
@@ -474,7 +387,6 @@ router.post('/documentos/desde-cotizacion/:id', requirePermission('facturacion.e
 
 /* =================== DOCUMENTOS =================== */
 
-// GET /api/documentos (últimos o búsqueda por correlativo)
 router.get('/documentos', requirePermission('facturacion.view'), async (req, res) => {
   try {
     const db = getDB(); const { allAsync } = promisify(db);
@@ -499,8 +411,7 @@ router.get('/documentos', requirePermission('facturacion.view'), async (req, res
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/documentos/:id (encabezado + ítems + refs)
-router.get('/documentos/:id', requirePermission('facturacion.view'), async (req, res) => {
+router.get('/documentos/:id(\\d+)', requirePermission('facturacion.view'), async (req, res) => {
   try {
     const db = getDB(); const { getAsync, allAsync } = promisify(db);
     const { id } = req.params;
@@ -512,8 +423,7 @@ router.get('/documentos/:id', requirePermission('facturacion.view'), async (req,
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/documentos/:id/anular  (repone inventario si aplica)
-router.post('/documentos/:id/anular', requirePermission('facturacion.emitir'), async (req, res) => {
+router.post('/documentos/:id(\\d+)/anular', requirePermission('facturacion.emitir'), async (req, res) => {
   try {
     const db = getDB(); const { getAsync, allAsync, runAsync } = promisify(db);
     const { id } = req.params;
@@ -524,10 +434,8 @@ router.post('/documentos/:id/anular', requirePermission('facturacion.emitir'), a
       if(!doc){ await runAsync('ROLLBACK'); return res.status(404).json({ error: 'NO_ENCONTRADO' }); }
       if(doc.estado === 'anulado'){ await runAsync('ROLLBACK'); return res.status(400).json({ error: 'YA_ANULADO' }); }
 
-      // Anular documento
       await runAsync(`UPDATE documentos SET estado='anulado' WHERE id=?`, [id]);
 
-      // Reponer inventario para repuestos vinculados
       const items = await allAsync(`
         SELECT producto_id, tipo, cantidad
         FROM documento_items
@@ -537,7 +445,6 @@ router.post('/documentos/:id/anular', requirePermission('facturacion.emitir'), a
       for (const it of items) {
         const qty = Number(it.cantidad) || 0;
         if (!qty) continue;
-
         await runAsync(`UPDATE productos SET stock = stock + ? WHERE id=?`, [qty, it.producto_id]);
         await runAsync(`
           INSERT INTO inventario_movimientos (producto_id, tipo, cantidad, motivo, referencia, documento_id, fecha)
@@ -552,13 +459,11 @@ router.post('/documentos/:id/anular', requirePermission('facturacion.emitir'), a
       try { await runAsync('ROLLBACK'); } catch {}
       throw eTx;
     }
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/documentos/:id/print  -> HTML imprimible
-router.get('/documentos/:id/print', requirePermission('facturacion.view'), async (req, res) => {
+/* HTML imprimible */
+router.get('/documentos/:id(\\d+)/print', requirePermission('facturacion.view'), async (req, res) => {
   try {
     const db = getDB(); 
     const g = (sql, p=[]) => new Promise((ok,ko)=>db.get(sql,p,(e,r)=>e?ko(e):ok(r)));
@@ -583,7 +488,7 @@ router.get('/documentos/:id/print', requirePermission('facturacion.view'), async
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
   :root{ --ink:#0f172a; --line:#e5e7eb; --muted:#64748b; }
-  @page{ size: Letter; margin: 14mm; } /* Carta */
+  @page{ size: Letter; margin: 14mm; }
   *{ box-sizing:border-box }
   body{ font-family: system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif; color:var(--ink); margin:0; }
   .wrap{ max-width: 820px; margin: 0 auto; padding: 16px; }
@@ -594,25 +499,24 @@ router.get('/documentos/:id/print', requirePermission('facturacion.view'), async
   .box{ border:1px solid var(--line); border-radius:12px; padding:12px; background:#fff }
   h2{ margin:0 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:.4px; color:#334155 }
   table{ width:100%; border-collapse:collapse; margin-top:12px }
-  thead { display: table-header-group; }   /* cabecera repetida */
+  thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
-  tr, td, th { page-break-inside: avoid; break-inside: avoid; } /* no partir filas */
+  tr, td, th { page-break-inside: avoid; break-inside: avoid; }
   th,td{ padding:8px; border-bottom:1px solid var(--line); font-size:13px; text-align:left }
   th.right, td.right{ text-align:right }
-  .grid2{ display:grid; grid-template-columns: 1.5fr 0.8fr; gap:12px; margin-top:12px } /* Cliente más angosto */
+  .grid2{ display:grid; grid-template-columns: 1.5fr 0.8fr; gap:12px; margin-top:12px }
   .totals{ margin-top:12px; margin-left:auto; width:min(100%,360px); border:1px solid var(--line); border-radius:12px; padding:10px }
   .row{ display:flex; justify-content:space-between; padding:4px 0 }
   .row.total{ border-top:1px dashed #cbd5e1; margin-top:6px; padding-top:8px; font-weight:700 }
   .tag{ display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:12px }
-  .nowrap{ white-space: nowrap; } /* CAI en una línea */
-  .muted{ color:var(--muted) }
+  .nowrap{ white-space: nowrap; }
+  .muted{ color:#64748b }
   .print-actions{ margin-top:14px }
   @media print{ .print-actions{ display:none } body{ margin:0 } .wrap{ padding:0 } }
 </style>
 </head>
 <body>
   <div class="wrap">
-    <!-- Encabezado: logo + emisor -->
     <div class="hdr">
       ${logo ? `<img src="${logo}" alt="Logo" class="logo">` : ``}
       <div class="brand">
@@ -622,7 +526,6 @@ router.get('/documentos/:id/print', requirePermission('facturacion.view'), async
       </div>
     </div>
 
-    <!-- Dos columnas -->
     <div class="grid2">
       <div class="box">
         <h2>${h.tipo}</h2>
@@ -646,18 +549,11 @@ router.get('/documentos/:id/print', requirePermission('facturacion.view'), async
       <table>
         <thead>
           <tr>
-            <th>Descripción</th>
-            <th class="right">Cant.</th>
-            <th class="right">P. Unit</th>
-            <th class="right">Desc</th>
-            <th class="right">ISV%</th>
-            <th class="right">Base</th>
-            <th class="right">ISV</th>
-            <th class="right">Total</th>
+            <th>Descripción</th><th class="right">Cant.</th><th class="right">P. Unit</th><th class="right">Desc</th><th class="right">ISV%</th><th class="right">Base</th><th class="right">ISV</th><th class="right">Total</th>
           </tr>
         </thead>
         <tbody>
-          ${items.map(i=>`
+          ${ (items||[]).map(i=>`
             <tr>
               <td>${i.descripcion||''}</td>
               <td class="right">${money2(i.cantidad)}</td>
@@ -668,7 +564,7 @@ router.get('/documentos/:id/print', requirePermission('facturacion.view'), async
               <td class="right">${money2(i.impuesto)}</td>
               <td class="right">${money2(i.total_linea)}</td>
             </tr>
-          `).join('')}
+          `).join('') }
         </tbody>
       </table>
     </div>
@@ -683,23 +579,14 @@ router.get('/documentos/:id/print', requirePermission('facturacion.view'), async
     </div>
 
     ${h.total_letras ? `<div class="box" style="margin-top:10px"><b>Total en letras:</b> ${h.total_letras}</div>`:''}
-
-    <div class="small muted" style="margin-top:10px">
-      Este documento fue generado electrónicamente.
-    </div>
-
-    <div class="print-actions">
-      <button onclick="window.print()">Imprimir</button>
-    </div>
+    <div class="small muted" style="margin-top:10px">Este documento fue generado electrónicamente.</div>
+    <div class="print-actions"><button onclick="window.print()">Imprimir</button></div>
   </div>
 </body>
 </html>`;
-
     res.setHeader('Content-Type','text/html; charset=utf-8');
     res.send(html);
-  } catch (e) {
-    res.status(500).send('Error al generar impresión: ' + e.message);
-  }
+  } catch (e) { res.status(500).send('Error al generar impresión: ' + e.message); }
 });
 
 module.exports = router;

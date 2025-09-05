@@ -1,81 +1,41 @@
+"use strict";
+
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../db/database');
-
-// ✅ Importa el guard de permisos
 const { requirePermission } = require('../middleware/requirePermission');
 
-// Conexión segura: usa la de app si existe; si no, usa getDB()
-function dbConn(req) {
-  return (req.app && req.app.get('db')) || getDB();
-}
+// Health (antes de params)
+router.get('/_alive', (_req, res) => res.json({ ok: true, mod: 'catalogo' }));
 
-// Promesas para sqlite3
-function all(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-}
-function get(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
-  });
-}
-function run(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) return reject(err);
-      resolve(this); // this.lastID, this.changes
-    });
-  });
-}
+function dbConn(req) { return (req.app && req.app.get('db')) || getDB(); }
+
+// Promesas sqlite-like
+function all(db, sql, params = []) { return new Promise((ok, ko)=>db.all(sql, params, (e, r)=>e?ko(e):ok(r))); }
+function get(db, sql, params = []) { return new Promise((ok, ko)=>db.get(sql, params, (e, r)=>e?ko(e):ok(r))); }
+function run(db, sql, params = []) { return new Promise((ok, ko)=>db.run(sql, params, function(e){ e?ko(e):ok(this); })); }
 
 function parseLimit(v, def = 50, min = 1, max = 100) {
   const n = parseInt(v, 10);
   if (Number.isNaN(n)) return def;
   return Math.max(min, Math.min(max, n));
 }
-
-// === Helpers de precio: se ingresa precio FINAL y el sistema calcula base e impuesto ===
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
-/**
- * Dado un precio final con ISV incluido y un porcentaje de impuesto (0|15|18),
- * retorna { base, impuesto_monto, impuesto_pct, precio_final }
- */
 function desglosarDesdeFinal(precio_final, impuesto_pct) {
   const pf = Number(precio_final) || 0;
   const pct = Number(impuesto_pct) || 0;
   if (pct <= 0) {
-    return {
-      base: round2(pf),
-      impuesto_monto: 0,
-      impuesto_pct: 0,
-      precio_final: round2(pf),
-    };
+    return { base: round2(pf), impuesto_monto: 0, impuesto_pct: 0, precio_final: round2(pf) };
   }
   const base = round2(pf / (1 + pct / 100));
   const imp = round2(pf - base);
-  return {
-    base,
-    impuesto_monto: imp,
-    impuesto_pct: pct,
-    precio_final: round2(pf),
-  };
+  return { base, impuesto_monto: imp, impuesto_pct: pct, precio_final: round2(pf) };
 }
 
-// ✅ Toda la sección de catálogo/inventario requiere permiso de VER inventario
+// Permiso global de lectura
 router.use(requirePermission('inventario.view'));
 
-/**
- * GET /api/catalogo
- * Filtros:
- *  - tipo=servicio|repuesto|producto
- *  - search=texto (tokenizado; busca en nombre y sku)
- *  - seccion_id=<id> (para servicios)
- *  - area_id=<id>    (para repuestos)
- *  - activo=1|0      (opcional; si no se envía, trae TODOS)
- *  - limit=<n>
- */
+/* ================= LISTA ================= */
 router.get('/', async (req, res) => {
   const db = dbConn(req);
   const { search = '', limit = 50, tipo, seccion_id, area_id, activo } = req.query;
@@ -84,26 +44,17 @@ router.get('/', async (req, res) => {
     const params = [];
     const where = [];
 
-    if (tipo === 'servicio' || tipo === 'repuesto' || tipo === 'producto') {
-      where.push('c.tipo = ?'); params.push(tipo);
-    }
+    if (['servicio','repuesto','producto'].includes(tipo)) { where.push('c.tipo = ?'); params.push(tipo); }
 
-    // Sanitiza comodines y tokeniza
     const q = String(search || '').trim().replace(/[%_]/g, '');
     if (q) {
       const tokens = q.split(/\s+/).filter(Boolean);
-      tokens.forEach(tok => {
-        where.push('(c.nombre LIKE ? OR c.sku LIKE ?)');
-        const like = `%${tok}%`;
-        params.push(like, like);
-      });
+      tokens.forEach(tok => { where.push('(c.nombre LIKE ? OR c.sku LIKE ?)'); const like = `%${tok}%`; params.push(like, like); });
     }
 
     if (seccion_id) { where.push('c.seccion_id = ?'); params.push(Number(seccion_id)); }
     if (area_id)    { where.push('c.area_id = ?');    params.push(Number(area_id)); }
-    if (activo === '1' || activo === '0') {
-      where.push('c.activo = ?'); params.push(Number(activo));
-    }
+    if (activo === '1' || activo === '0') { where.push('c.activo = ?'); params.push(Number(activo)); }
 
     const L = parseLimit(limit, 50, 1, 100);
 
@@ -123,16 +74,10 @@ router.get('/', async (req, res) => {
     params.push(L);
 
     const rows = await all(db, sql, params);
-
-    // Agrega campos calculados para el frontend (precio_final e impuesto_monto)
     const enriched = rows.map(r => {
       const precio_final = round2((Number(r.precio_base) || 0) * (1 + (Number(r.impuesto_pct) || 0) / 100));
       const imp_monto = round2(precio_final - (Number(r.precio_base) || 0));
-      return {
-        ...r,
-        precio_final,
-        impuesto_monto: imp_monto
-      };
+      return { ...r, precio_final, impuesto_monto: imp_monto };
     });
 
     res.json(enriched);
@@ -141,96 +86,43 @@ router.get('/', async (req, res) => {
   }
 });
 
-/* -------------- LISTAS AUXILIARES: van ANTES de /:id -------------- */
-
+/* ======= AUX LISTS (antes de /:id) ======= */
 router.get('/secciones', async (req, res) => {
   const db = dbConn(req);
-  try {
-    const rows = await all(db, `SELECT id, nombre FROM secciones_servicio ORDER BY nombre`);
-    res.json(rows);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  try { res.json(await all(db, `SELECT id, nombre FROM secciones_servicio ORDER BY nombre`)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/areas', async (req, res) => {
   const db = dbConn(req);
-  try {
-    const rows = await all(db, `SELECT id, nombre FROM areas_vehiculo ORDER BY nombre`);
-    res.json(rows);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  try { res.json(await all(db, `SELECT id, nombre FROM areas_vehiculo ORDER BY nombre`)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// CRUD simple de secciones/áreas
-router.post('/secciones', requirePermission('inventario.edit'), async (req, res) => {
-  const db = dbConn(req);
-  const { nombre } = req.body || {};
-  if (!nombre) return res.status(400).json({ error: 'nombre requerido' });
-  try {
-    const r = await run(db, `INSERT INTO secciones_servicio (nombre) VALUES (?)`, [nombre]);
-    const row = await get(db, `SELECT * FROM secciones_servicio WHERE id=?`, [r.lastID]);
-    res.status(201).json(row);
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
-
-router.post('/areas', requirePermission('inventario.edit'), async (req, res) => {
-  const db = dbConn(req);
-  const { nombre } = req.body || {};
-  if (!nombre) return res.status(400).json({ error: 'nombre requerido' });
-  try {
-    const r = await run(db, `INSERT INTO areas_vehiculo (nombre) VALUES (?)`, [nombre]);
-    const row = await get(db, `SELECT * FROM areas_vehiculo WHERE id=?`, [r.lastID]);
-    res.status(201).json(row);
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
-
-/* ------------------ CRUD catálogo ------------------ */
-
-// Crear (precio FINAL: el sistema calcula precio_base e impuesto desde impuesto_pct o tarifa_isv)
+/* ============== CREATE ============== */
 router.post('/', requirePermission('inventario.edit'), async (req, res) => {
   const db = dbConn(req);
   const {
     sku, nombre, tipo, seccion_id = null, area_id = null,
     categoria = null, unidad = 'unidad',
-    // Entradas posibles:
-    precio_final,            // ✅ recomendado: precio que pagará el cliente
-    precio_base,             // (compat) si viene se respeta, pero se ignora si viene precio_final
-    impuesto_pct,            // 0|15|18
-    tarifa_isv,              // (alias) 0|15|18
-    activo = 1
+    precio_final, precio_base, impuesto_pct, tarifa_isv, activo = 1
   } = req.body || {};
 
-  if (!nombre || !tipo) {
-    return res.status(400).json({ error: 'nombre y tipo son obligatorios' });
-  }
-  // Ahora aceptamos 'producto' además de servicio|repuesto
+  if (!nombre || !tipo) return res.status(400).json({ error: 'nombre y tipo son obligatorios' });
   if (!['servicio','repuesto','producto'].includes(tipo)) {
     return res.status(400).json({ error: 'tipo inválido (servicio|repuesto|producto)' });
   }
-  if (tipo === 'servicio' && !seccion_id) {
-    return res.status(400).json({ error: 'seccion_id es obligatorio para servicios' });
-  }
-  if (tipo === 'repuesto' && !area_id) {
-    return res.status(400).json({ error: 'area_id es obligatorio para repuestos' });
-  }
-  // Para 'producto' no exigimos seccion/area
+  if (tipo === 'servicio' && !seccion_id) return res.status(400).json({ error: 'seccion_id es obligatorio para servicios' });
+  if (tipo === 'repuesto' && !area_id)    return res.status(400).json({ error: 'area_id es obligatorio para repuestos' });
 
-  // Determinar pct
   const pct = (tarifa_isv !== undefined ? Number(tarifa_isv) : (impuesto_pct !== undefined ? Number(impuesto_pct) : 0)) || 0;
 
-  // Calcular base/imp desde precio_final si viene; de lo contrario, usar precio_base
-  let baseToSave = 0;
-  let pctToSave = 0;
-
+  let baseToSave = 0, pctToSave = 0;
   if (precio_final !== undefined && precio_final !== null && precio_final !== '') {
     const desg = desglosarDesdeFinal(precio_final, pct);
-    baseToSave = desg.base;
-    pctToSave = desg.impuesto_pct;
+    baseToSave = desg.base; pctToSave = desg.impuesto_pct;
   } else {
-    baseToSave = round2(precio_base || 0);
-    pctToSave = pct;
+    baseToSave = round2(precio_base || 0); pctToSave = pct;
   }
 
   try {
@@ -246,29 +138,21 @@ router.post('/', requirePermission('inventario.edit'), async (req, res) => {
       ]
     );
     const item = await get(db, `SELECT * FROM catalogo WHERE id=?`, [r.lastID]);
-
-    // Enriquecer con precio_final e impuesto_monto
     const precio_final_resp = round2(item.precio_base * (1 + (item.impuesto_pct || 0) / 100));
     const impuesto_monto = round2(precio_final_resp - item.precio_base);
-
     res.status(201).json({ ...item, precio_final: precio_final_resp, impuesto_monto });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
 
-// Editar (precio FINAL opcional; si viene, recalculamos)
-router.put('/:id', requirePermission('inventario.edit'), async (req, res) => {
+/* ============== UPDATE ============== */
+router.put('/:id(\\d+)', requirePermission('inventario.edit'), async (req, res) => {
   const db = dbConn(req);
   const { id } = req.params;
   const {
-    sku, nombre, tipo, seccion_id, area_id,
-    categoria, unidad,
-    precio_final,         // ✅ si viene, recalculamos
-    precio_base,          // (compat)
-    impuesto_pct,         // 0|15|18
-    tarifa_isv,           // (alias)
-    activo
+    sku, nombre, tipo, seccion_id, area_id, categoria, unidad,
+    precio_final, precio_base, impuesto_pct, tarifa_isv, activo
   } = req.body || {};
 
   try {
@@ -280,7 +164,6 @@ router.put('/:id', requirePermission('inventario.edit'), async (req, res) => {
       return res.status(400).json({ error: 'tipo inválido (servicio|repuesto|producto)' });
     }
 
-    // Derivar seccion/area según el tipo final y lo enviado
     let newSeccion = current.seccion_id;
     let newArea    = current.area_id;
 
@@ -293,12 +176,10 @@ router.put('/:id', requirePermission('inventario.edit'), async (req, res) => {
       newSeccion = null;
       if (!newArea) return res.status(400).json({ error: 'area_id es obligatorio para repuestos' });
     } else {
-      // producto: no forzamos seccion/area
       newSeccion = null;
       newArea = null;
     }
 
-    // Calcular base/impuesto según entradas
     const pctIn = (tarifa_isv !== undefined ? Number(tarifa_isv) : (impuesto_pct !== undefined ? Number(impuesto_pct) : current.impuesto_pct)) || 0;
 
     let baseToSave = current.precio_base;
@@ -306,11 +187,9 @@ router.put('/:id', requirePermission('inventario.edit'), async (req, res) => {
 
     if (precio_final !== undefined && precio_final !== null && precio_final !== '') {
       const desg = desglosarDesdeFinal(precio_final, pctIn);
-      baseToSave = desg.base;
-      pctToSave = desg.impuesto_pct;
+      baseToSave = desg.base; pctToSave = desg.impuesto_pct;
     } else if (precio_base !== undefined) {
-      baseToSave = round2(precio_base);
-      pctToSave = pctIn;
+      baseToSave = round2(precio_base); pctToSave = pctIn;
     }
 
     const payload = {
@@ -359,15 +238,14 @@ router.put('/:id', requirePermission('inventario.edit'), async (req, res) => {
 
     const precio_final_resp = round2(item.precio_base * (1 + (item.impuesto_pct || 0) / 100));
     const impuesto_monto = round2(precio_final_resp - item.precio_base);
-
     res.json({ ...item, precio_final: precio_final_resp, impuesto_monto });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
 
-// Borrado lógico
-router.delete('/:id', requirePermission('inventario.edit'), async (req, res) => {
+/* ============== DELETE (lógico) ============== */
+router.delete('/:id(\\d+)', requirePermission('inventario.edit'), async (req, res) => {
   const db = dbConn(req);
   const { id } = req.params;
   try {
@@ -380,14 +258,8 @@ router.delete('/:id', requirePermission('inventario.edit'), async (req, res) => 
   }
 });
 
-/* -------------- IMPORTANTE: /:id va al FINAL -------------- */
-
-
-/* ======== Productos para Facturación/Inventario (tabla "productos") ======== */
-/* Estas rutas permiten a la factura/cotización seleccionar artículos con stock,
-   e incluyen el tipo 'producto' para futuros items que no sean repuestos ni servicios. */
-
-// GET /api/catalogo/productos?tipo=repuesto|servicio|producto&search=texto&activo=1&limit=100
+/* ======== Productos auxiliares ======== */
+// GET /productos
 router.get('/productos', async (req, res) => {
   const db = dbConn(req);
   const { search = '', limit = 100, tipo, activo } = req.query;
@@ -396,34 +268,24 @@ router.get('/productos', async (req, res) => {
     const params = [];
     const where = [];
 
-    if (tipo === 'servicio' || tipo === 'repuesto' || tipo === 'producto') {
-      where.push('p.tipo = ?'); params.push(tipo);
-    }
-
-    if (activo === '1' || activo === '0') {
-      where.push('COALESCE(p.activo,1) = ?'); params.push(Number(activo));
-    }
+    if (['servicio','repuesto','producto'].includes(tipo)) { where.push('p.tipo = ?'); params.push(tipo); }
+    if (activo === '1' || activo === '0') { where.push('COALESCE(p.activo,1) = ?'); params.push(Number(activo)); }
 
     const q = String(search || '').trim().replace(/[%_]/g, '');
     if (q) {
       const tokens = q.split(/\s+/).filter(Boolean);
-      tokens.forEach(tok => {
-        where.push('(p.nombre LIKE ? OR p.sku LIKE ?)');
-        const like = `%${tok}%`;
-        params.push(like, like);
-      });
+      tokens.forEach(tok => { where.push('(p.nombre LIKE ? OR p.sku LIKE ?)'); const like = `%${tok}%`; params.push(like, like); });
     }
 
     const L = Math.max(1, Math.min(200, parseInt(limit, 10) || 100));
 
-    // En "productos" asumimos que el precio guardado es el PRECIO FINAL
     const rows = await all(db, `
       SELECT
         p.id,
         p.sku,
         p.nombre,
-        p.tipo,               -- 'servicio' | 'repuesto' | 'producto'
-        p.precio,             -- PRECIO FINAL (cliente)
+        p.tipo,
+        p.precio,             -- PRECIO FINAL
         p.tarifa_isv,         -- 0 | 15 | 18
         p.stock,
         COALESCE(p.activo,1) AS activo
@@ -433,15 +295,9 @@ router.get('/productos', async (req, res) => {
       LIMIT ?
     `, [...params, L]);
 
-    // Para conveniencia del frontend, devolvemos desglose base/ISV
     const enriched = rows.map(r => {
       const desg = desglosarDesdeFinal(r.precio, r.tarifa_isv || 0);
-      return {
-        ...r,
-        precio_final: desg.precio_final,
-        base_imponible: desg.base,
-        impuesto_monto: desg.impuesto_monto
-      };
+      return { ...r, precio_final: desg.precio_final, base_imponible: desg.base, impuesto_monto: desg.impuesto_monto };
     });
 
     res.json(enriched);
@@ -450,41 +306,25 @@ router.get('/productos', async (req, res) => {
   }
 });
 
-// GET /api/catalogo/productos/:id
-router.get('/productos/:id', async (req, res) => {
+// GET /productos/:id
+router.get('/productos/:id(\\d+)', async (req, res) => {
   const db = dbConn(req);
   const { id } = req.params;
   try {
     const row = await get(db, `
       SELECT
-        p.id,
-        p.sku,
-        p.nombre,
-        p.tipo,
-        p.precio,         -- PRECIO FINAL
-        p.tarifa_isv,
-        p.stock,
-        COALESCE(p.activo,1) AS activo
+        p.id, p.sku, p.nombre, p.tipo, p.precio, p.tarifa_isv, p.stock, COALESCE(p.activo,1) AS activo
       FROM productos p
       WHERE p.id = ?
     `, [id]);
-
     if (!row) return res.status(404).json({ error: 'No existe' });
-
     const desg = desglosarDesdeFinal(row.precio, row.tarifa_isv || 0);
-    res.json({
-      ...row,
-      precio_final: desg.precio_final,
-      base_imponible: desg.base,
-      impuesto_monto: desg.impuesto_monto
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    res.json({ ...row, precio_final: desg.precio_final, base_imponible: desg.base, impuesto_monto: desg.impuesto_monto });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/catalogo/:id
-router.get('/:id', async (req, res) => {
+// GET /:id  (al final)
+router.get('/:id(\\d+)', async (req, res) => {
   const db = dbConn(req);
   const { id } = req.params;
   try {
@@ -500,14 +340,10 @@ router.get('/:id', async (req, res) => {
       WHERE c.id = ?
     `, [id]);
     if (!row) return res.status(404).json({ error: 'No existe' });
-
     const precio_final_resp = round2(row.precio_base * (1 + (row.impuesto_pct || 0) / 100));
     const impuesto_monto = round2(precio_final_resp - row.precio_base);
-
     res.json({ ...row, precio_final: precio_final_resp, impuesto_monto });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;

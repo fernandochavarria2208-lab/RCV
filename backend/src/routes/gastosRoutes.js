@@ -1,11 +1,17 @@
-// backend/src/routes/gastosRoutes.js
+"use strict";
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const router = express.Router();
 const { getDB } = require('../db/database');
-const { requirePermission } = require('../middleware/requirePermission'); // 👈 permisos
+const { requirePermission } = require('../middleware/requirePermission');
+
+const IS_PG = (process.env.DB_ENGINE || '').toLowerCase().includes('postg');
+
+// Health
+router.get('/_alive', (_req, res) => res.json({ ok: true, mod: 'gastos' }));
 
 function promisify(db) {
   const getAsync = (sql, params=[]) => new Promise((res, rej)=>db.get(sql, params, (e,r)=>e?rej(e):res(r)));
@@ -14,10 +20,7 @@ function promisify(db) {
   return { getAsync, allAsync, runAsync };
 }
 
-const num = (v, d=0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-};
+const num = (v, d=0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 const money = v => Math.round(num(v)*100)/100;
 
 /* ========= uploads ========= */
@@ -39,35 +42,47 @@ let _boot = false;
 async function ensureTablesOnce(db){
   if (_boot) return;
   const { runAsync } = promisify(db);
-  await runAsync(`
-    CREATE TABLE IF NOT EXISTS gastos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fecha TEXT NOT NULL,
-      proveedor TEXT,
-      descripcion TEXT,
-      categoria TEXT,
-      monto_gravado REAL DEFAULT 0,
-      isv_15 REAL DEFAULT 0,
-      isv_18 REAL DEFAULT 0,
-      monto_exento REAL DEFAULT 0,
-      total REAL DEFAULT 0,
-      numero_doc TEXT,
-      adjunto_path TEXT,
-      created_at TEXT DEFAULT (DATETIME('now'))
-    );
-  `);
-  await runAsync(`CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(date(fecha))`);
+  if (IS_PG) {
+    await runAsync(`
+      CREATE TABLE IF NOT EXISTS gastos (
+        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        fecha DATE NOT NULL,
+        proveedor TEXT,
+        descripcion TEXT,
+        categoria TEXT,
+        monto_gravado NUMERIC DEFAULT 0,
+        isv_15 NUMERIC DEFAULT 0,
+        isv_18 NUMERIC DEFAULT 0,
+        monto_exento NUMERIC DEFAULT 0,
+        total NUMERIC DEFAULT 0,
+        numero_doc TEXT,
+        adjunto_path TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } else {
+    await runAsync(`
+      CREATE TABLE IF NOT EXISTS gastos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha TEXT NOT NULL,
+        proveedor TEXT,
+        descripcion TEXT,
+        categoria TEXT,
+        monto_gravado REAL DEFAULT 0,
+        isv_15 REAL DEFAULT 0,
+        isv_18 REAL DEFAULT 0,
+        monto_exento REAL DEFAULT 0,
+        total REAL DEFAULT 0,
+        numero_doc TEXT,
+        adjunto_path TEXT,
+        created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
+      );
+    `);
+  }
   _boot = true;
 }
 
 /* ================== CREATE ================== */
-/* POST /api/gastos  (multipart/form-data)
-   Campos (body):
-   - fecha (YYYY-MM-DD) *requerido*
-   - proveedor, descripcion, categoria, numero_doc (opcionales)
-   - monto_gravado, isv_15, isv_18, monto_exento, total (opcionales; si faltan se calculan)
-   - adjunto (file) opcional
-*/
 router.post('/', requirePermission('gastos.edit'), upload.single('adjunto'), async (req, res) => {
   try {
     const db = getDB(); 
@@ -80,26 +95,17 @@ router.post('/', requirePermission('gastos.edit'), upload.single('adjunto'), asy
     } = req.body || {};
     if (!fecha) return res.status(400).json({ error: 'FECHA_REQUERIDA' });
 
-    // normalizar números
     const grav = money(monto_gravado);
-    let i15 = (isv_15 === undefined || isv_15 === '' || isNaN(Number(isv_15))) ? undefined : money(isv_15);
-    let i18 = (isv_18 === undefined || isv_18 === '' || isNaN(Number(isv_18))) ? undefined : money(isv_18);
+    let i15 = (isv_15 === undefined || isNaN(Number(isv_15))) ? undefined : money(isv_15);
+    let i18 = (isv_18 === undefined || isNaN(Number(isv_18))) ? undefined : money(isv_18);
     const exen = money(monto_exento);
 
-    // default: si hay gravado y NO mandan isv, asumimos 15%
-    if (i15 === undefined && i18 === undefined && grav > 0) {
-      i15 = money(grav * 0.15);
-      i18 = 0;
-    }
+    if (i15 === undefined && i18 === undefined && grav > 0) { i15 = money(grav * 0.15); i18 = 0; }
     if (i15 === undefined) i15 = 0;
     if (i18 === undefined) i18 = 0;
 
     let tot = total;
-    if (tot === undefined || tot === '' || isNaN(Number(tot))) {
-      tot = money(grav + exen + i15 + i18);
-    } else {
-      tot = money(tot);
-    }
+    if (tot === undefined || isNaN(Number(tot))) { tot = money(grav + exen + i15 + i18); } else { tot = money(tot); }
     if (tot <= 0) return res.status(400).json({ error: 'TOTAL_INVALIDO' });
 
     const adjPath = req.file ? req.file.filename : null;
@@ -110,16 +116,13 @@ router.post('/', requirePermission('gastos.edit'), upload.single('adjunto'), asy
       VALUES (?,?,?,?,?,?,?,?,?,?,?)
     `,[fecha, proveedor||null, descripcion||null, categoria||null, grav, i15, i18, exen, tot, numero_doc||null, adjPath]);
 
-    const row = await getAsync(`SELECT * FROM gastos WHERE id=?`, [ins.lastID]);
+    const id = ins.lastID ?? (await getAsync(`SELECT MAX(id) AS id FROM gastos`)).id;
+    const row = await getAsync(`SELECT * FROM gastos WHERE id=?`, [id]);
     res.status(201).json(row);
-  } catch (e) { 
-    res.status(500).json({ error: e.message }); 
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ================== LIST ================== */
-/* GET /api/gastos?mes=YYYY-MM
-      o ?from=YYYY-MM-DD&to=YYYY-MM-DD (también desde/ hasta) */
 router.get('/', requirePermission('gastos.view'), async (req, res) => {
   try {
     const db = getDB(); 
@@ -127,25 +130,16 @@ router.get('/', requirePermission('gastos.view'), async (req, res) => {
     const { allAsync } = promisify(db);
     const { mes } = req.query;
 
-    let where = '';
-    let params = [];
-
-    if (mes) {
-      where = `WHERE date(fecha) >= ? AND date(fecha) <= ?`;
-      params = [`${mes}-01`, `${mes}-31`];
-    } else {
+    let where = ''; let params = [];
+    if (mes) { where = `WHERE CAST(fecha AS DATE) >= ? AND CAST(fecha AS DATE) <= ?`; params = [`${mes}-01`, `${mes}-31`]; }
+    else {
       const from = (req.query.from || req.query.desde || '').slice(0,10);
       const to   = (req.query.to   || req.query.hasta || '').slice(0,10);
-      if (from && to) {
-        where = `WHERE date(fecha) BETWEEN ? AND ?`;
-        params = [from, to];
-      }
+      if (from && to) { where = `WHERE CAST(fecha AS DATE) BETWEEN ? AND ?`; params = [from, to]; }
     }
 
     const rows = await allAsync(
-      `SELECT * FROM gastos
-       ${where}
-       ORDER BY date(fecha) DESC, id DESC`,
+      `SELECT * FROM gastos ${where} ORDER BY CAST(fecha AS DATE) DESC, id DESC`,
       params
     );
     res.json(rows || []);
@@ -153,8 +147,7 @@ router.get('/', requirePermission('gastos.view'), async (req, res) => {
 });
 
 /* ================== FILE ================== */
-/* GET /api/gastos/:id/adjunto */
-router.get('/:id/adjunto', requirePermission('gastos.view'), async (req, res) => {
+router.get('/:id(\\d+)/adjunto', requirePermission('gastos.view'), async (req, res) => {
   try {
     const db = getDB(); 
     await ensureTablesOnce(db);

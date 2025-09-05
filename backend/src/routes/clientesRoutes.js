@@ -1,19 +1,21 @@
-// backend/src/routes/clientesRoutes.js
+"use strict";
+
 const express = require('express');
 const router = express.Router();
 const ctrl = require('../controllers/clientesController');
 const { requirePermission } = require('../middleware/requirePermission');
 
-// Toda la sección requiere permiso de VER clientes
-router.use(requirePermission('clientes.view'));
+// Health — antes de params
+router.get('/_alive', (_req, res) => res.json({ ok: true, mod: 'clientes' }));
 
 // Lecturas
+router.use(requirePermission('clientes.view'));
 router.get('/', ctrl.getClientes);
-router.get('/:id', ctrl.getCliente);
+router.get('/:id(\\d+)', ctrl.getCliente);
 
-// Escrituras (crear/editar/eliminar) requieren permiso de EDITAR clientes
+// Escrituras
 router.post('/', requirePermission('clientes.edit'), ctrl.crearCliente);
-router.put('/:id', requirePermission('clientes.edit'), ctrl.actualizarCliente);
-router.delete('/:id', requirePermission('clientes.edit'), ctrl.eliminarCliente);
+router.put('/:id(\\d+)', requirePermission('clientes.edit'), ctrl.actualizarCliente);
+router.delete('/:id(\\d+)', requirePermission('clientes.edit'), ctrl.eliminarCliente);
 
 module.exports = router;
